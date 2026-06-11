@@ -16,3 +16,4 @@ node_modules/
 # Misc
 .playwright-mcp/
 logs/
+info.md
