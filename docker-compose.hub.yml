@@ -1,0 +1,26 @@
+# Run Quick Data from PUBLISHED Docker Hub images — no source checkout needed.
+# Images default to the sidkid1978/* namespace, so devs only need a Gemini key:
+#
+#   GEMINI_API_KEY=... docker compose -f docker-compose.hub.yml up
+#
+# (Override the namespace with DOCKERHUB_USER=... if you republish elsewhere.)
+# Then open http://localhost:3000
+services:
+  backend:
+    image: ${DOCKERHUB_USER:-sidkid1978}/quickdata-backend:${TAG:-latest}
+    pull_policy: always
+    ports:
+      - "8020:8020"
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      QUICKDATA_DATA_DIR: /app/data
+    restart: unless-stopped
+
+  frontend:
+    image: ${DOCKERHUB_USER:-sidkid1978}/quickdata-frontend:${TAG:-latest}
+    pull_policy: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped

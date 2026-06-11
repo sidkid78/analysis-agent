@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "quick-data": {
+      "command": "uv",
+      "args": ["run", "--directory", "backend", "quickdata-mcp"]
+    }
+  }
+}

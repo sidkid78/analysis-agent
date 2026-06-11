@@ -1,0 +1,29 @@
+# Build + run Quick Data locally (use this to build the images you publish).
+# Consumers who only pull published images should use docker-compose.hub.yml.
+#
+#   GEMINI_API_KEY=... docker compose up --build
+#
+services:
+  backend:
+    build: ./backend
+    image: ${DOCKERHUB_USER:-sidkid1978}/quickdata-backend:${TAG:-latest}
+    ports:
+      - "8020:8020"
+    environment:
+      # Each dev supplies their own key; never bake it into the image.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      QUICKDATA_DATA_DIR: /app/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the JS bundle; the browser uses it to reach the backend.
+        NEXT_PUBLIC_API_BASE: http://localhost:8020
+    image: ${DOCKERHUB_USER:-sidkid1978}/quickdata-frontend:${TAG:-latest}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
