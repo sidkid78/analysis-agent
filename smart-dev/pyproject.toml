@@ -1,0 +1,30 @@
+[project]
+name = "smart-dev-env"
+version = "0.1.0"
+description = "Smart Development Environment MCP server — a senior-dev pair programmer (prompts + tools) for code analysis and workflows."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.12.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "google-genai>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[project.scripts]
+smart-dev = "smart_dev.server_fastmcp:main"
+smart-dev-api = "smart_dev.api:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["smart_dev"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

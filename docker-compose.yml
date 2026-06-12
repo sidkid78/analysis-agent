@@ -1,4 +1,4 @@
-# Build + run Quick Data locally (use this to build the images you publish).
+# Build + run the Workbench locally (use this to build the images you publish).
 # Consumers who only pull published images should use docker-compose.hub.yml.
 #
 #   GEMINI_API_KEY=... docker compose up --build
@@ -15,15 +15,30 @@ services:
       QUICKDATA_DATA_DIR: /app/data
     restart: unless-stopped
 
+  smart-dev:
+    build: ./smart-dev
+    image: ${DOCKERHUB_USER:-sidkid1978}/smart-dev-api:${TAG:-latest}
+    ports:
+      - "8030:8030"
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      # Mount code to analyze from the "/dev" UI. Defaults to this repo; override
+      # with PROJECTS_DIR=/path/to/your/code. Read-only by default.
+      - ${PROJECTS_DIR:-.}:/workspace:ro
+    restart: unless-stopped
+
   frontend:
     build:
       context: ./frontend
       args:
-        # Baked into the JS bundle; the browser uses it to reach the backend.
+        # Baked into the JS bundle; the browser uses these to reach the APIs.
         NEXT_PUBLIC_API_BASE: http://localhost:8020
+        NEXT_PUBLIC_SMARTDEV_API_BASE: http://localhost:8030
     image: ${DOCKERHUB_USER:-sidkid1978}/quickdata-frontend:${TAG:-latest}
     ports:
       - "3000:3000"
     depends_on:
       - backend
+      - smart-dev
     restart: unless-stopped

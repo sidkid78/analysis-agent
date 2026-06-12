@@ -16,6 +16,18 @@ services:
       QUICKDATA_DATA_DIR: /app/data
     restart: unless-stopped
 
+  smart-dev:
+    image: ${DOCKERHUB_USER:-sidkid1978}/smart-dev-api:${TAG:-latest}
+    pull_policy: always
+    ports:
+      - "8030:8030"
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      # Code to analyze from the "/dev" UI. Override: PROJECTS_DIR=/path/to/code.
+      - ${PROJECTS_DIR:-.}:/workspace:ro
+    restart: unless-stopped
+
   frontend:
     image: ${DOCKERHUB_USER:-sidkid1978}/quickdata-frontend:${TAG:-latest}
     pull_policy: always
@@ -23,4 +35,5 @@ services:
       - "3000:3000"
     depends_on:
       - backend
+      - smart-dev
     restart: unless-stopped

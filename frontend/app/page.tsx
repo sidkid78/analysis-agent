@@ -462,7 +462,27 @@ export default function Home() {
         {/* Chat rail */}
         <div className="xl:sticky xl:top-8 xl:h-[calc(100vh-4rem)] xl:w-[380px] xl:shrink-0">
           <div className="h-[600px] xl:h-full">
-            <ChatPanel onActivity={onAgentActivity} />
+            <ChatPanel
+              client={api}
+              onActivity={onAgentActivity}
+              title="Ask the data"
+              placeholder="Ask about your data…"
+              suggestions={[
+                "Load the employee survey and tell me what drives satisfaction",
+                "What's in the ecommerce orders data? Chart sales by region.",
+                "Find the strongest correlations in product performance",
+              ]}
+              upload={{
+                accept: ".json,.csv,.tsv",
+                hint: "Drop a .json / .csv / .tsv file to analyze",
+                upload: async (file) => {
+                  const info = await api.upload(file);
+                  return { name: info.name, detail: `${info.rows} rows` };
+                },
+                contextNote: (a) =>
+                  `(I just uploaded the dataset "${a.name}" (${a.detail}) — it is loaded and ready to analyze.)`,
+              }}
+            />
           </div>
         </div>
       </div>

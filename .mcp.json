@@ -1,8 +1,22 @@
 {
   "mcpServers": {
     "quick-data": {
-      "command": "uv",
-      "args": ["run", "--directory", "backend", "quickdata-mcp"]
+      "command": "C:\\Users\\sidki\\.local\\bin\\uv.exe",
+      "args": [
+        "run",
+        "--directory",
+        "C:\\Users\\sidki\\source\\repos\\exp\\backend",
+        "quickdata-mcp"
+      ]
+    },
+    "smart-dev": {
+      "command": "C:\\Users\\sidki\\.local\\bin\\uv.exe",
+      "args": [
+        "run",
+        "--directory",
+        "C:\\Users\\sidki\\source\\repos\\exp\\smart-dev",
+        "smart-dev"
+      ]
     }
   }
 }

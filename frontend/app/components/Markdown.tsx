@@ -34,11 +34,15 @@ export function Markdown({ text }: { text: string }) {
   while (i < lines.length) {
     const line = lines[i];
 
-    // Code fence
-    if (line.startsWith("```")) {
+    // Code fence (tolerant of leading indentation, e.g. fences under list items)
+    const fenceIndent = line.length - line.trimStart().length;
+    if (line.trimStart().startsWith("```")) {
       const buf: string[] = [];
       i++;
-      while (i < lines.length && !lines[i].startsWith("```")) buf.push(lines[i++]);
+      while (i < lines.length && !lines[i].trimStart().startsWith("```")) {
+        buf.push(lines[i].slice(fenceIndent)); // strip the fence's indent
+        i++;
+      }
       i++; // closing fence
       blocks.push(
         <pre key={key++} className="overflow-x-auto rounded-lg bg-black/[.05] p-3 text-xs dark:bg-white/5">

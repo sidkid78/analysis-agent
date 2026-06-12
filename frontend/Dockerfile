@@ -14,10 +14,12 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# NEXT_PUBLIC_* is inlined at build time. This is the URL the browser (on the
-# host) uses to reach the backend — so it points at the host-mapped API port.
+# NEXT_PUBLIC_* is inlined at build time. These are the URLs the browser (on the
+# host) uses to reach the backends — so they point at the host-mapped API ports.
 ARG NEXT_PUBLIC_API_BASE=http://localhost:8020
+ARG NEXT_PUBLIC_SMARTDEV_API_BASE=http://localhost:8030
 ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE \
+    NEXT_PUBLIC_SMARTDEV_API_BASE=$NEXT_PUBLIC_SMARTDEV_API_BASE \
     NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 

@@ -133,6 +133,16 @@ same for the frontend). You can also trigger it manually from the Actions tab
 
 ## Notes & gotchas
 
+- **Three images:** `quickdata-backend` (Quick Data API), `smart-dev-api` (Smart
+  Dev API), and `quickdata-frontend` (the combined UI: `/` Data, `/dev` Dev).
+- **Analyzing your own code in the Dev section:** the Smart Dev container can only
+  see paths inside itself. Compose mounts a workspace read-only at `/workspace`
+  (defaults to this repo; override with `PROJECTS_DIR=/path/to/code`). In the
+  `/dev` UI, analyze `/workspace` (or a subfolder). `rollback_changes` can plan
+  but not execute against a read-only mount.
+
+
+
 - **The frontend's API URL is baked at build time.** `NEXT_PUBLIC_API_BASE` is
   inlined into the JS bundle (`http://localhost:8020`), which is correct when
   running via compose on a laptop. If you deploy the frontend to a real host,

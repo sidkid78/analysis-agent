@@ -1,0 +1,3 @@
+# Smart Dev MCP server runtime dependency.
+# (The project is also installable via uv / pyproject.toml.)
+mcp>=1.12.0

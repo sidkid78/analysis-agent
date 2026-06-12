@@ -110,26 +110,15 @@ export interface ReportResult {
   charts: ChartSpec[];
 }
 
+import { streamChat } from "./chat";
+
+export type { ChatEvent, ChatToolCall } from "./chat";
+
 export interface AgentStatus {
   enabled: boolean;
   model: string;
   backend: string;
 }
-
-export interface ChatToolCall {
-  name: string;
-  args: Record<string, unknown>;
-  ok: boolean;
-  summary: string;
-}
-
-export type ChatEvent =
-  | { type: "session"; session_id: string }
-  | { type: "text"; delta: string }
-  | ({ type: "tool" } & ChatToolCall)
-  | { type: "chart"; spec: ChartSpec }
-  | { type: "done"; model: string }
-  | { type: "error"; message: string };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -196,46 +185,9 @@ export const api = {
     request<{ reset: string }>(`/api/chat/${encodeURIComponent(sessionId)}`, {
       method: "DELETE",
     }),
-  // Stream the agent's work as Server-Sent Events. Yields each parsed event.
-  async *chatStream(
-    message: string,
-    sessionId: string | null,
-  ): AsyncGenerator<ChatEvent> {
-    const res = await fetch(`${API_BASE}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, session_id: sessionId }),
-    });
-    if (!res.ok || !res.body) {
-      let detail = `${res.status} ${res.statusText}`;
-      try {
-        const body = await res.json();
-        if (body?.detail) detail = body.detail;
-      } catch {
-        /* ignore */
-      }
-      throw new Error(detail);
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let sep: number;
-      while ((sep = buffer.indexOf("\n\n")) >= 0) {
-        const frame = buffer.slice(0, sep);
-        buffer = buffer.slice(sep + 2);
-        const dataLine = frame
-          .split("\n")
-          .find((l) => l.startsWith("data:"));
-        if (!dataLine) continue;
-        const payload = dataLine.slice(5).trim();
-        if (payload) yield JSON.parse(payload) as ChatEvent;
-      }
-    }
-  },
+  // Stream the agent's work as Server-Sent Events.
+  chatStream: (message: string, sessionId: string | null) =>
+    streamChat(API_BASE, message, sessionId),
   async upload(file: File, dataset_name?: string): Promise<DatasetInfo> {
     const form = new FormData();
     form.append("file", file);
