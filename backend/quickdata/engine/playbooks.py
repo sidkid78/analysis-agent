@@ -140,10 +140,131 @@ def correlation_deep_dive(store: DatasetStore, name: str, threshold: float = 0.3
     }
 
 
+def executive_summary(store: DatasetStore, name: str) -> dict[str, Any]:
+    """A C-suite narrative: takeaways, key breakdown, trend, relationships, and
+    a data-confidence note — composed from the other engine ops."""
+    b = analysis.breakdown(store, name)
+    sug = analysis.suggest_analysis(store, name)
+    charts_out: list[dict[str, Any]] = []
+    highlights: list[str] = []
+
+    sections = [
+        _section(
+            "Headline",
+            f"**{name}** covers **{b['rows']:,} records** across "
+            f"**{len(b['columns'])} fields** "
+            f"({len(b['numerical_columns'])} numeric, "
+            f"{len(b['categorical_columns'])} categorical, "
+            f"{len(b['datetime_columns'])} datetime).",
+        )
+    ]
+
+    # Composition by the top suggested category.
+    seg_cols = [
+        s["column"] for s in sug["suggestions"]
+        if s["operation"] == "segment" and s.get("column")
+    ]
+    if seg_cols:
+        seg = analysis.segment_by_column(store, name, seg_cols[0], top=5)
+        if seg["segments"]:
+            top_seg = seg["segments"][0]
+            highlights.append(
+                f"'{top_seg['value']}' leads **{seg['column']}** with "
+                f"{top_seg['count']:,} records."
+            )
+            sections.append(
+                _section(
+                    f"Breakdown by {seg['column']}",
+                    _md_table(
+                        [seg["column"], "records"],
+                        [[s["value"], f"{s['count']:,}"] for s in seg["segments"]],
+                    ),
+                )
+            )
+            try:
+                charts_out.append(charts.build_chart(store, name, "bar", x=seg["column"]))
+            except DatasetError:
+                pass
+
+    # Trend over time, when a date column is present.
+    try:
+        tr = analysis.trend_analysis(store, name)
+        arrow = {"rising": "↑", "falling": "↓", "flat": "→"}[tr["direction"]]
+        pct = f"{tr['change_pct']:+.1f}%" if tr["change_pct"] is not None else "n/a"
+        highlights.append(f"{tr['metric']} is **{tr['direction']}** {arrow} ({pct}).")
+        sections.append(
+            _section(
+                "Trend",
+                f"Across **{tr['periods']}** {tr['frequency']} periods, "
+                f"{tr['metric']} moved from {tr['first']} to {tr['last']} ({pct}). "
+                f"Peak {tr['peak']['value']} on {tr['peak']['period']}; "
+                f"low {tr['trough']['value']} on {tr['trough']['period']}.",
+            )
+        )
+        charts_out.append(tr["chart"])
+    except DatasetError:
+        pass
+
+    # Key relationships.
+    try:
+        corr = analysis.find_correlations(store, name, threshold=0.5)
+        if corr["correlations"]:
+            top = corr["correlations"][0]
+            highlights.append(
+                f"**{top['x']}** and **{top['y']}** move together "
+                f"({top['strength']} {top['direction']}, r={top['r']})."
+            )
+            sections.append(
+                _section(
+                    "Key relationships",
+                    _md_table(
+                        ["x", "y", "r", "strength"],
+                        [
+                            [c["x"], c["y"], c["r"], f"{c['strength']} {c['direction']}"]
+                            for c in corr["correlations"][:5]
+                        ],
+                    ),
+                )
+            )
+    except DatasetError:
+        pass
+
+    # Data confidence from the quality score.
+    q = quality.profile(store, name)
+    score = q["quality_score"]
+    confidence = "high" if score >= 85 else "moderate" if score >= 60 else "low"
+    sections.append(
+        _section(
+            "Data confidence",
+            f"Quality score **{score}/100** ({confidence}); {q['duplicate_rows']} "
+            f"duplicate row(s), {len(q['issues'])} issue(s) flagged. "
+            + (
+                "Findings are reliable."
+                if confidence == "high"
+                else "Validate key figures before circulating."
+            ),
+        )
+    )
+
+    takeaways = "\n".join(f"- {h}" for h in highlights) or (
+        "- Dataset loaded; no standout patterns detected automatically."
+    )
+    sections.insert(1, _section("Key takeaways", takeaways))
+
+    return {
+        "playbook": "executive_summary",
+        "dataset": name,
+        "summary": highlights[0] if highlights else f"{name}: {b['rows']} records summarized.",
+        "sections": sections,
+        "charts": charts_out,
+    }
+
+
 PLAYBOOKS: dict[str, Callable[..., dict[str, Any]]] = {
     "first_look": first_look,
     "data_quality_audit": data_quality_audit,
     "correlation_deep_dive": correlation_deep_dive,
+    "executive_summary": executive_summary,
 }
 
 

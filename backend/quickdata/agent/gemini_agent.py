@@ -34,8 +34,11 @@ list_samples and load_sample to load a bundled dataset.
   e.g. filters=["region==East Coast"], group_by=["category"], metrics=["sales:sum"].
 - Use profile_dataset to assess data quality, and clean_dataset to fix issues
   (it writes a new "<name>_clean" dataset; analyze that afterward).
+- For "over time" / trend / growth questions, use trend_analysis (it picks the
+  date column and metric, and returns a chart).
 - For broad requests ("analyze this", "give me a report"), prefer run_playbook
-  (first_look / data_quality_audit / correlation_deep_dive) or generate_report.
+  (first_look / data_quality_audit / correlation_deep_dive / executive_summary)
+  or generate_report.
 - When a chart helps, call create_chart — it renders in the UI, so don't describe \
 it pixel by pixel.
 

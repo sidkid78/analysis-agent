@@ -167,12 +167,37 @@ def clean_dataset(dataset_name: str, operations: list[str]) -> dict[str, Any]:
         return {"error": str(exc)}
 
 
+def trend_analysis(dataset_name: str, date_column: str = "", metric: str = "") -> dict[str, Any]:
+    """Analyze a metric's trend over time: direction, percent change, peak/low + a chart.
+
+    Auto-detects a date column and numeric metric when not given; date-like text
+    columns are parsed. With no numeric metric, row counts per period are used.
+
+    Args:
+        dataset_name: The dataset to analyze.
+        date_column: Date/time column to bucket by. Auto-detected if omitted.
+        metric: Numeric column to sum per period. Auto-detected if omitted.
+    """
+    try:
+        result = analysis.trend_analysis(
+            store, dataset_name, date_column=date_column or None, metric=metric or None
+        )
+    except DatasetError as exc:
+        return {"error": str(exc)}
+    # Re-key so the agent streams the chart (it looks for a `charts` list); drop
+    # the full per-period series so we don't echo the points back into context.
+    result.pop("series", None)
+    result["charts"] = [result.pop("chart")]
+    return result
+
+
 def run_playbook(dataset_name: str, playbook: str) -> dict[str, Any]:
     """Run a canned analysis recipe and return report sections + charts.
 
     Args:
         dataset_name: The dataset to analyze.
-        playbook: One of 'first_look', 'data_quality_audit', 'correlation_deep_dive'.
+        playbook: One of 'first_look', 'data_quality_audit', 'correlation_deep_dive',
+            'executive_summary'.
     """
     try:
         return playbooks.run(store, playbook, dataset_name)
@@ -201,6 +226,7 @@ TOOLS = [
     run_query,
     profile_dataset,
     clean_dataset,
+    trend_analysis,
     run_playbook,
     generate_report,
 ]

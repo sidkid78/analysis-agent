@@ -142,7 +142,7 @@ def clean_dataset(dataset_name: str, operations: list[str]) -> str:
 @mcp.tool()
 @_guard
 def run_playbook(dataset_name: str, playbook: str) -> str:
-    """Run a recipe: first_look, data_quality_audit, or correlation_deep_dive."""
+    """Run a recipe: first_look, data_quality_audit, correlation_deep_dive, or executive_summary."""
     return _result(playbooks.run(store, playbook, dataset_name))
 
 
@@ -184,14 +184,16 @@ This server gives you arbitrary analysis over JSON/CSV datasets held in memory.
 - `run_query(dataset_name, filters, group_by, metrics, ...)` — flexible query
 - `profile_dataset(dataset_name)` — data-quality profile + suggested fixes
 - `clean_dataset(dataset_name, operations)` — apply fixes into a new dataset
-- `run_playbook(dataset_name, playbook)` — first_look / data_quality_audit / correlation_deep_dive
+- `run_playbook(dataset_name, playbook)` — first_look / data_quality_audit / correlation_deep_dive / executive_summary
 
 ## Prompts (guided workflows — these slash commands)
 - `find_data_sources(directory)` — discover loadable files, ready to load
 - `dataset_first_look(dataset_name)` — orient yourself on a fresh dataset
 - `correlation_investigation(dataset_name)` — hunt for strong relationships
+- `trend_analysis(dataset_name, date_column?, metric?)` — time-series direction + change
 - `first_look_report(dataset_name)` — formatted first-look report
 - `data_quality_audit(dataset_name)` — quality issues + ready cleaning call
+- `executive_summary(dataset_name)` — C-suite report: takeaways, trend, relationships
 
 ## Quick start
 1. `find_data_sources(".")` to discover files (or sample data in `{DATA_DIR}`)
@@ -306,6 +308,48 @@ def correlation_investigation(dataset_name: str, threshold: float = 0.5) -> str:
         f"`create_chart('{dataset_name}', 'scatter', x='{top['x']}', y='{top['y']}')`.",
     ]
     return "\n".join(lines)
+
+
+@mcp.prompt(title="Trend Analysis")
+def trend_analysis(dataset_name: str, date_column: str = "", metric: str = "") -> str:
+    """Detect a metric's time-series trend and report direction and change."""
+    if not store.has(dataset_name):
+        return f"Dataset '{dataset_name}' is not loaded. Load it first."
+    try:
+        t = analysis.trend_analysis(
+            store,
+            dataset_name,
+            date_column=date_column or None,
+            metric=metric or None,
+        )
+    except DatasetError as exc:
+        return f"Cannot run trend analysis: {exc}"
+
+    arrow = {"rising": "↑", "falling": "↓", "flat": "→"}[t["direction"]]
+    pct = f"{t['change_pct']:+.1f}%" if t["change_pct"] is not None else "n/a"
+    lines = [
+        f"# Trend — `{dataset_name}`",
+        "",
+        f"**{t['metric']}** by `{t['date_column']}`, {t['frequency']} buckets "
+        f"({t['periods']} periods).",
+        "",
+        f"- Direction: **{t['direction']}** {arrow} ({pct} first→last)",
+        f"- First: {t['first']}  →  Last: {t['last']}",
+        f"- Peak: {t['peak']['value']} on {t['peak']['period']}",
+        f"- Low: {t['trough']['value']} on {t['trough']['period']}",
+        "",
+        f"Run `executive_summary('{dataset_name}')` for the full picture, or "
+        f"`run_playbook('{dataset_name}', 'correlation_deep_dive')` to find drivers.",
+    ]
+    return "\n".join(lines)
+
+
+@mcp.prompt(title="Executive Summary")
+def executive_summary(dataset_name: str) -> str:
+    """C-suite summary: takeaways, key breakdown, trend, relationships, confidence."""
+    if not store.has(dataset_name):
+        return f"Dataset '{dataset_name}' is not loaded. Load it first."
+    return playbooks.to_markdown(playbooks.executive_summary(store, dataset_name))
 
 
 def main() -> None:

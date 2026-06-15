@@ -49,7 +49,7 @@ It needs an API key:
 
 ```bash
 export GEMINI_API_KEY=...   # or GOOGLE_API_KEY
-# optional: override the model (default gemini-3-flash-preview)
+# optional: override the model (default gemini-3.5-flash)
 export QUICKDATA_MODEL=gemini-3.1-pro-preview
 ```
 
@@ -98,12 +98,14 @@ Then in Claude Code: `/quick-data:list_mcp_assets` to prime the agent, or
 
 `load_dataset`, `list_datasets`, `dataset_breakdown`, `suggest_analysis`,
 `segment_by_column`, `find_correlations`, `create_chart`, `run_query`,
-`profile_dataset`, `clean_dataset`, `run_playbook`.
+`profile_dataset`, `clean_dataset`, `run_playbook`. (The in-app agent also has
+`trend_analysis` for time-series questions.)
 
 ## Prompts (slash commands)
 
 `list_mcp_assets`, `find_data_sources`, `dataset_first_look`,
-`correlation_investigation`, `first_look_report`, `data_quality_audit`.
+`correlation_investigation`, `trend_analysis`, `first_look_report`,
+`data_quality_audit`, `executive_summary`.
 
 ## Workflows
 
@@ -114,8 +116,12 @@ via the in-app agent, the MCP server, and REST:
   `group_by`, `metrics` (e.g. `["value:sum","count"]`), `sort_by`, `limit`.
 - **Data quality** — `GET .../profile` (issues + fixes), `POST .../clean`
   (writes a new `<name>_clean` dataset; non-destructive).
-- **Playbooks** — `GET .../playbook/{first_look|data_quality_audit|correlation_deep_dive}`
-  returns report sections + charts.
+- **Playbooks** — `GET .../playbook/{first_look|data_quality_audit|correlation_deep_dive|executive_summary}`
+  returns report sections + charts. `executive_summary` is a C-suite roll-up
+  (takeaways, key breakdown, trend, relationships, data confidence).
+- **Trend** — time-series direction, percent change, and peak/low for a metric;
+  auto-detects the date column and metric. Via the in-app agent (`trend_analysis`
+  tool) and the `trend_analysis` MCP prompt.
 - **Report** — `GET .../report` returns a Markdown/HTML report with charts;
   `GET .../report.pdf` returns a print-ready PDF (fpdf2: HTML tables + hand-drawn
   charts, no native deps).

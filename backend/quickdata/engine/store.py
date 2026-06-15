@@ -120,7 +120,10 @@ class DatasetStore:
             return pd.json_normalize(data)
         if suffix in (".csv", ".tsv", ".txt"):
             sep = "\t" if suffix == ".tsv" else ","
-            return pd.read_csv(io.BytesIO(raw), sep=sep)
+            try:
+                return pd.read_csv(io.BytesIO(raw), sep=sep, encoding="utf-8")
+            except UnicodeDecodeError:
+                return pd.read_csv(io.BytesIO(raw), sep=sep, encoding="cp1252")
         raise DatasetError(
             f"Unsupported file type '{suffix or filename}'. Use .json, .csv, or .tsv."
         )

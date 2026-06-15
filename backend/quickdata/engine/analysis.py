@@ -8,6 +8,7 @@ result and an HTTP response body.
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 import numpy as np
@@ -182,3 +183,138 @@ def _strength(abs_r: float) -> str:
     if abs_r >= 0.4:
         return "moderate"
     return "weak"
+
+
+# Column names that hint at a date/time, used when no column is typed datetime.
+_DATE_NAME_HINT = re.compile(r"(date|time|day|month|year|timestamp|_at|_on)", re.I)
+
+
+def _pick_date_column(df: pd.DataFrame, info: Any) -> str | None:
+    """Best-effort date column: prefer a datetime-typed one, else a parseable
+    date-like-named string column (CSV dates often arrive as plain strings)."""
+    dt_cols = info.columns_of_kind("datetime")
+    if dt_cols:
+        return dt_cols[0]
+    for col in info.columns_of_kind("categorical"):
+        if not _DATE_NAME_HINT.search(str(col)):
+            continue
+        parsed = pd.to_datetime(df[col], errors="coerce")
+        if parsed.notna().mean() >= 0.8:
+            return col
+    return None
+
+
+def _auto_freq(index: pd.DatetimeIndex) -> str:
+    """Pick a resample rule from the time span so we get a readable number of
+    buckets. Uses pandas 2.2+ aliases (ME/YE)."""
+    span_days = int((index.max() - index.min()).days)
+    if span_days <= 31:
+        return "D"
+    if span_days <= 186:
+        return "W"
+    if span_days <= 1100:
+        return "ME"
+    return "YE"
+
+
+def trend_analysis(
+    store: DatasetStore,
+    name: str,
+    date_column: str | None = None,
+    metric: str | None = None,
+    freq: str = "auto",
+) -> dict[str, Any]:
+    """Aggregate a numeric metric over time and characterize the trend.
+
+    The date column and metric are auto-detected when not given. Date-like string
+    columns are coerced to datetime. With no usable numeric metric, the row count
+    per period is used. Returns the per-period series, a direction/percent-change
+    summary, and a ready-to-render chart spec.
+    """
+    df = store.frame(name)
+    info = store.info(name)
+
+    date_column = date_column or _pick_date_column(df, info)
+    if not date_column:
+        raise DatasetError(
+            f"No datetime column found in '{name}'. Pass date_column=<column> with "
+            f"parseable dates."
+        )
+    if date_column not in df.columns:
+        raise DatasetError(
+            f"Column '{date_column}' not in '{name}'. Columns: "
+            f"{', '.join(map(str, df.columns))}."
+        )
+    dates = pd.to_datetime(df[date_column], errors="coerce")
+    if int(dates.notna().sum()) < 2:
+        raise DatasetError(
+            f"Column '{date_column}' has fewer than 2 parseable dates; cannot "
+            f"analyze a trend."
+        )
+
+    numeric_cols = info.columns_of_kind("numerical")
+    if metric is not None and metric not in df.columns:
+        raise DatasetError(f"Metric '{metric}' not in '{name}'.")
+    if metric is not None and metric not in numeric_cols:
+        raise DatasetError(
+            f"Metric '{metric}' is not numeric. Numeric columns: "
+            f"{', '.join(numeric_cols) or 'none'}."
+        )
+    if metric is None:
+        metric = next((c for c in numeric_cols if c != date_column), None)
+
+    ts = pd.DataFrame({"_t": dates})
+    if metric is None:
+        ts["_v"] = 1.0
+        metric_label = "row count"
+    else:
+        ts["_v"] = pd.to_numeric(df[metric], errors="coerce")
+        metric_label = f"sum({metric})"
+    ts = ts.dropna(subset=["_t"]).set_index("_t").sort_index()
+
+    rule = _auto_freq(ts.index) if freq == "auto" else freq
+    resampled = ts["_v"].resample(rule)
+    grouped = (resampled.count() if metric is None else resampled.sum()).dropna()
+    if grouped.empty:
+        raise DatasetError("No data points after resampling; check the metric column.")
+
+    points = [
+        {"period": idx.date().isoformat(), "value": _json_safe(val)}
+        for idx, val in grouped.items()
+    ]
+    values = [p["value"] for p in points]
+    first, last = values[0], values[-1]
+    change = last - first
+    change_pct = round((change / first) * 100, 2) if first else None
+    slope = float(np.polyfit(range(len(values)), values, 1)[0]) if len(values) >= 2 else 0.0
+    direction = "rising" if slope > 0 else "falling" if slope < 0 else "flat"
+    peak = max(points, key=lambda p: p["value"])
+    trough = min(points, key=lambda p: p["value"])
+
+    chart = {
+        "dataset": name,
+        "type": "bar",
+        "subtype": "trend",
+        "title": f"{metric_label} over time ({rule})",
+        "x_label": date_column,
+        "y_label": metric_label,
+        "data": [{"label": p["period"], "value": p["value"]} for p in points],
+    }
+
+    return {
+        "dataset": name,
+        "date_column": date_column,
+        "metric": metric_label,
+        "frequency": rule,
+        "periods": len(points),
+        "series": points,
+        "first": _json_safe(first),
+        "last": _json_safe(last),
+        "change": _json_safe(change),
+        "change_pct": change_pct,
+        "direction": direction,
+        "slope": round(slope, 4),
+        "peak": peak,
+        "trough": trough,
+        "chart": chart,
+    }
