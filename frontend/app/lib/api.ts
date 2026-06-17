@@ -110,6 +110,41 @@ export interface ReportResult {
   charts: ChartSpec[];
 }
 
+export interface SqlResult {
+  sql: string;
+  tables: Record<string, string>;
+  columns: string[];
+  result_rows: number;
+  returned_rows: number;
+  rows: Record<string, unknown>[];
+}
+
+export type TransformOperation =
+  | "to_numeric"
+  | "to_datetime"
+  | "to_categorical"
+  | "parse_json"
+  | "extract_pattern"
+  | "fill_missing"
+  | "normalize"
+  | "bin"
+  | "map_values"
+  | "split"
+  | "strip"
+  | "lowercase"
+  | "uppercase"
+  | "replace";
+
+// All transforms are non-destructive: the result is a NEW dataset described by
+// `result`. Operation-specific extras (e.g. rows_before/after, new_columns) ride
+// along on the same object.
+export interface TransformResult {
+  source: string;
+  transformed_dataset: string;
+  result: DatasetInfo;
+  [extra: string]: unknown;
+}
+
 import { streamChat } from "./chat";
 
 export type { ChatEvent, ChatToolCall } from "./chat";
@@ -175,6 +210,39 @@ export const api = {
     ),
   report: (name: string) =>
     request<ReportResult>(`/api/datasets/${encodeURIComponent(name)}/report`),
+  runSql: (sql: string, datasets?: string[], limit = 100) =>
+    request<SqlResult>("/api/sql", {
+      method: "POST",
+      body: JSON.stringify({ sql, datasets, limit }),
+    }),
+  transform: (
+    name: string,
+    body: {
+      column: string;
+      operation: TransformOperation;
+      params?: Record<string, unknown>;
+      into?: string;
+    },
+  ) =>
+    request<TransformResult>(`/api/datasets/${encodeURIComponent(name)}/transform`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  compute: (name: string, body: { new_column: string; expression: string; into?: string }) =>
+    request<TransformResult>(`/api/datasets/${encodeURIComponent(name)}/compute`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  filter: (name: string, body: { condition: string; keep?: boolean; into?: string }) =>
+    request<TransformResult>(`/api/datasets/${encodeURIComponent(name)}/filter`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  rename: (name: string, body: { mapping: Record<string, string>; into?: string }) =>
+    request<TransformResult>(`/api/datasets/${encodeURIComponent(name)}/rename`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   async reportPdf(name: string): Promise<Blob> {
     const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(name)}/report.pdf`);
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);

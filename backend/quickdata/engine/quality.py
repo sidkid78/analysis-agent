@@ -11,6 +11,10 @@ fixes. ``clean`` applies a list of cleaning operations into a *new* dataset
 - "coerce_numeric:col"
 - "coerce_datetime:col"
 - "drop_columns:colA,colB"
+- "drop_constant"                 (drop columns with a single unique value)
+- "drop_empty"                    (drop columns >=95% null; "drop_empty:0.8" overrides)
+- "standardize_missing"           (turn 'N/A', 'NULL', '-', '' etc. into nulls)
+- "strip_whitespace"              (trim whitespace in text columns)
 """
 
 from __future__ import annotations
@@ -155,6 +159,42 @@ def clean(store: DatasetStore, name: str, operations: list[str], into: str | Non
                 _require_col(df, c)
             df = df.drop(columns=cols)
             log.append(f"drop_columns: {', '.join(cols)}")
+        elif head == "drop_constant":
+            const = [c for c in df.columns if df[c].nunique(dropna=True) <= 1]
+            df = df.drop(columns=const)
+            log.append(f"drop_constant: dropped {len(const)} column(s)" +
+                       (f" ({', '.join(map(str, const))})" if const else ""))
+        elif head == "drop_empty":
+            threshold = float(arg) if arg.strip() else 0.95
+            rows_now = len(df)
+            empty = [
+                c for c in df.columns
+                if rows_now and df[c].isna().sum() / rows_now >= threshold
+            ]
+            df = df.drop(columns=empty)
+            log.append(f"drop_empty (>={threshold:.0%} null): dropped {len(empty)} column(s)" +
+                       (f" ({', '.join(map(str, empty))})" if empty else ""))
+        elif head == "standardize_missing":
+            indicators = {
+                "", "n/a", "na", "null", "none", "nan", "-", "--", ".",
+                "not available", "not applicable",
+            }
+            replaced = 0
+            for c in _text_columns(df):
+                mask = df[c].astype(str).str.strip().str.lower().isin(indicators)
+                replaced += int(mask.sum())
+                df.loc[mask, c] = np.nan
+            log.append(f"standardize_missing: nulled {replaced} placeholder value(s)")
+        elif head == "strip_whitespace":
+            stripped = []
+            for c in _text_columns(df):
+                original = df[c]
+                trimmed = original.astype(str).str.strip()
+                trimmed = trimmed.where(trimmed != "nan", np.nan)
+                if not trimmed.equals(original):
+                    df[c] = trimmed
+                    stripped.append(str(c))
+            log.append(f"strip_whitespace: cleaned {len(stripped)} text column(s)")
         else:
             raise DatasetError(f"Unknown cleaning operation '{op}'.")
 
@@ -167,6 +207,15 @@ def clean(store: DatasetStore, name: str, operations: list[str], into: str | Non
         "operations": log,
         "result": info.to_dict(),
     }
+
+
+def _text_columns(df: pd.DataFrame) -> list[Any]:
+    """Object/string columns, selected without the pandas-3 select_dtypes warning."""
+    return [
+        c
+        for c in df.columns
+        if pd.api.types.is_object_dtype(df[c]) or pd.api.types.is_string_dtype(df[c])
+    ]
 
 
 def _require_col(df: pd.DataFrame, col: str) -> None:

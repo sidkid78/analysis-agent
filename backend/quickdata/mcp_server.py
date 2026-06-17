@@ -15,7 +15,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from .config import DATA_DIR
-from .engine import analysis, charts, playbooks, quality, query
+from .engine import analysis, charts, playbooks, quality, query, sql, transform
 from .engine.store import DatasetError, default_store
 
 mcp = FastMCP("quick-data")
@@ -135,8 +135,66 @@ def profile_dataset(dataset_name: str) -> str:
 @mcp.tool()
 @_guard
 def clean_dataset(dataset_name: str, operations: list[str]) -> str:
-    """Apply cleaning ops into a new '<name>_clean' dataset (non-destructive)."""
+    """Apply cleaning ops into a new '<name>_clean' dataset (non-destructive).
+
+    Ops: drop_duplicates, drop_nulls[:cols], fill_nulls:col:strategy,
+    coerce_numeric:col, coerce_datetime:col, drop_columns:cols, drop_constant,
+    drop_empty[:threshold], standardize_missing, strip_whitespace.
+    """
     return _result(quality.clean(store, dataset_name, operations))
+
+
+@mcp.tool()
+@_guard
+def run_sql(dataset_name: str, sql_query: str, limit: int = 100) -> str:
+    """Run a read-only SQL SELECT/WITH query over loaded datasets (JOINs allowed).
+
+    All loaded datasets are queryable as tables named after them. Only the named
+    dataset plus any others you reference need exist. Example:
+    run_sql('ecom', "SELECT region, COUNT(*) n FROM ecom GROUP BY region").
+    """
+    return _result(sql.run_sql(store, sql_query, limit=limit))
+
+
+@mcp.tool()
+@_guard
+def transform_column(
+    dataset_name: str,
+    column: str,
+    operation: str,
+    params: dict | None = None,
+    into: str | None = None,
+) -> str:
+    """Transform a column into a NEW dataset (non-destructive; default '<name>_transformed').
+
+    operation: to_numeric|to_datetime|to_categorical|parse_json|extract_pattern|
+    fill_missing|normalize|bin|map_values|split|strip|lowercase|uppercase|replace.
+    Pass operation-specific options via params (e.g. {"method":"zscore"}).
+    """
+    return _result(transform.transform_column(store, dataset_name, column, operation, params, into))
+
+
+@mcp.tool()
+@_guard
+def add_column(dataset_name: str, new_column: str, expression: str, into: str | None = None) -> str:
+    """Add a computed column from a pandas expression into a new dataset (e.g. 'price * qty')."""
+    return _result(transform.add_column(store, dataset_name, new_column, expression, into))
+
+
+@mcp.tool()
+@_guard
+def filter_rows(
+    dataset_name: str, condition: str, keep: bool = True, into: str | None = None
+) -> str:
+    """Materialize a row subset into a new dataset via a pandas query (e.g. 'order_value > 100')."""
+    return _result(transform.filter_rows(store, dataset_name, condition, keep, into))
+
+
+@mcp.tool()
+@_guard
+def rename_columns(dataset_name: str, mapping: dict, into: str | None = None) -> str:
+    """Rename columns into a new dataset via an {old: new} mapping (non-destructive)."""
+    return _result(transform.rename_columns(store, dataset_name, mapping, into))
 
 
 @mcp.tool()
@@ -182,8 +240,13 @@ This server gives you arbitrary analysis over JSON/CSV datasets held in memory.
 - `find_correlations(dataset_name, threshold=0.5)` — numeric relationships
 - `create_chart(dataset_name, chart_type, x, y)` — bar/pie/histogram/scatter/line
 - `run_query(dataset_name, filters, group_by, metrics, ...)` — flexible query
+- `run_sql(dataset_name, sql_query)` — read-only SQL over loaded datasets (JOINs allowed)
 - `profile_dataset(dataset_name)` — data-quality profile + suggested fixes
 - `clean_dataset(dataset_name, operations)` — apply fixes into a new dataset
+- `transform_column(dataset_name, column, operation, params)` — non-destructive column transform
+- `add_column(dataset_name, new_column, expression)` — computed column into a new dataset
+- `filter_rows(dataset_name, condition, keep)` — materialize a row subset
+- `rename_columns(dataset_name, mapping)` — rename into a new dataset
 - `run_playbook(dataset_name, playbook)` — first_look / data_quality_audit / correlation_deep_dive / executive_summary
 
 ## Prompts (guided workflows — these slash commands)

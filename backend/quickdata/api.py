@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from .agent.base import AgentError
 from .agent.gemini_agent import GeminiAgent
 from .config import DATA_DIR
-from .engine import analysis, charts, pdf, playbooks, quality, query, report
+from .engine import analysis, charts, pdf, playbooks, quality, query, report, sql, transform
 from .engine.store import DatasetError, default_store
 
 app = FastAPI(title="Quick Data API", version="0.1.0")
@@ -68,6 +68,36 @@ class QueryRequest(BaseModel):
 
 class CleanRequest(BaseModel):
     operations: list[str]
+
+
+class SqlRequest(BaseModel):
+    sql: str
+    datasets: list[str] | None = None
+    limit: int = 100
+
+
+class TransformRequest(BaseModel):
+    column: str
+    operation: str
+    params: dict = {}
+    into: str | None = None
+
+
+class ComputeRequest(BaseModel):
+    new_column: str
+    expression: str
+    into: str | None = None
+
+
+class FilterRequest(BaseModel):
+    condition: str
+    keep: bool = True
+    into: str | None = None
+
+
+class RenameRequest(BaseModel):
+    mapping: dict[str, str]
+    into: str | None = None
 
 
 class ChatRequest(BaseModel):
@@ -165,6 +195,33 @@ def query_dataset(name: str, req: QueryRequest) -> dict:
         req.descending,
         req.limit,
     )
+
+
+@app.post("/api/sql")
+def run_sql(req: SqlRequest) -> dict:
+    return _handle(sql.run_sql, store, req.sql, req.datasets, req.limit)
+
+
+@app.post("/api/datasets/{name}/transform")
+def transform_column(name: str, req: TransformRequest) -> dict:
+    return _handle(
+        transform.transform_column, store, name, req.column, req.operation, req.params, req.into
+    )
+
+
+@app.post("/api/datasets/{name}/compute")
+def add_column(name: str, req: ComputeRequest) -> dict:
+    return _handle(transform.add_column, store, name, req.new_column, req.expression, req.into)
+
+
+@app.post("/api/datasets/{name}/filter")
+def filter_rows(name: str, req: FilterRequest) -> dict:
+    return _handle(transform.filter_rows, store, name, req.condition, req.keep, req.into)
+
+
+@app.post("/api/datasets/{name}/rename")
+def rename_columns(name: str, req: RenameRequest) -> dict:
+    return _handle(transform.rename_columns, store, name, req.mapping, req.into)
 
 
 @app.get("/api/datasets/{name}/profile")
