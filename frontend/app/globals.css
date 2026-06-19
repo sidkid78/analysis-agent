@@ -1,26 +1,68 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
+/* Workbench dark design system (from the Claude Design redesign project). */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #0e0e11;
+  --panel: #161619;
+  --panel-2: #1d1d21;
+  --ink: #f3f2ef;
+  --ink-2: #a0a09a;
+  --ink-3: #6c6b66;
+  --line: #2a2a30;
+  --line-2: #202024;
+  --chip: #212126;
+  --accent: #7c78ff;
+  --accent-ink: #ffffff;
+  --accent-tint: color-mix(in srgb, var(--accent) 20%, var(--panel));
+  --accent-soft: color-mix(in srgb, var(--accent) 46%, var(--panel));
+  --ok: #16b981;
+  --warn: #e0962e;
+  --crit: #f87171;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+* {
+  box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-space), system-ui, sans-serif;
+  font-size: 14px;
+}
+
+.mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 8px;
 }

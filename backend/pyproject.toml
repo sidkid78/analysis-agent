@@ -1,6 +1,6 @@
 [project]
 name = "quickdata"
-version = "0.1.0"
+version = "0.3.0"
 description = "Arbitrary JSON/CSV data analysis, exposed as both an MCP server (tools + prompts) and a FastAPI HTTP API."
 readme = "README.md"
 requires-python = ">=3.11"

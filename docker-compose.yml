@@ -28,6 +28,15 @@ services:
       - ${PROJECTS_DIR:-.}:/workspace:ro
     restart: unless-stopped
 
+  infra:
+    build: ./infra
+    image: ${DOCKERHUB_USER:-sidkid1978}/infra-automation-api:${TAG:-latest}
+    ports:
+      - "8040:8040"
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    restart: unless-stopped
+
   frontend:
     build:
       context: ./frontend
@@ -35,10 +44,12 @@ services:
         # Baked into the JS bundle; the browser uses these to reach the APIs.
         NEXT_PUBLIC_API_BASE: http://localhost:8020
         NEXT_PUBLIC_SMARTDEV_API_BASE: http://localhost:8030
+        NEXT_PUBLIC_INFRA_API_BASE: http://localhost:8040
     image: ${DOCKERHUB_USER:-sidkid1978}/quickdata-frontend:${TAG:-latest}
     ports:
       - "3000:3000"
     depends_on:
       - backend
       - smart-dev
+      - infra
     restart: unless-stopped

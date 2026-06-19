@@ -17,6 +17,15 @@
         "C:\\Users\\sidki\\source\\repos\\exp\\smart-dev",
         "smart-dev"
       ]
+    },
+    "infra-automation": {
+      "command": "C:\\Users\\sidki\\.local\\bin\\uv.exe",
+      "args": [
+        "run",
+        "--directory",
+        "C:\\Users\\sidki\\source\\repos\\exp\\infra",
+        "infra-mcp"
+      ]
     }
   }
 }

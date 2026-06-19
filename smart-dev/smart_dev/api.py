@@ -22,7 +22,7 @@ from .agent.base import AgentError
 from .agent.gemini_agent import GeminiAgent
 from .utils import PathError
 
-app = FastAPI(title="Smart Dev API", version="0.1.0")
+app = FastAPI(title="Smart Dev API", version="0.3.0")
 agent = GeminiAgent()
 
 app.add_middleware(

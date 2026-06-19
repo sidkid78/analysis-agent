@@ -1,4 +1,4 @@
-"""Gemini-backed dev agent (google-genai SDK).
+"""Gemini-backed SRE agent (google-genai SDK).
 
 Streaming manual function-calling loop with server-side session persistence.
 Gemini 3 requires the function-call part's ``thought_signature`` to round-trip,
@@ -21,20 +21,19 @@ MAX_STEPS = 25
 MAX_SESSIONS = 200
 
 SYSTEM_INSTRUCTION = """\
-You are Smart Dev, a senior software engineer pair-programmer. You analyze real
-code with the provided tools — never guess about a codebase you can inspect.
+You are an SRE assistant operating a simulated service fleet through the provided
+tools. Use real tool results — never invent service names, metrics, or versions.
 
 Workflow:
-- Tools operate on a project directory path. If the user gives a path, use it; if
-  a "Project:" path is provided in context, default to that.
-- Start with analyze_codebase to understand complexity, issues, and security.
-- Use run_tests, check_dependencies, generate_docs as the question requires.
-- deploy_preview does a local build/health check (a simulated preview URL).
-- rollback_changes PLANS a git revert by default — only pass confirm=True after
-  the user explicitly approves; never revert unprompted.
+- Start with monitor_services (or fleet_status) to understand current state.
+- Use analyze_logs to investigate degraded services and incidents.
+- deploy_application, scale_resources, backup_data, and rotate_secrets are
+  MUTATING. They PLAN by default. Only pass confirm=True AFTER the user explicitly
+  approves the specific plan — never apply a change unprompted.
+- Prefer the smallest safe action. Before risky changes, suggest a backup.
 
-Be concrete: cite file:line and real numbers from tool results. Prioritize
-security findings. End with a clear, actionable next step. Keep it tight."""
+Be concrete: cite service names, real numbers, and version strings from tool
+results. End with a clear, actionable next step. Keep it tight."""
 
 
 @dataclass
@@ -64,22 +63,15 @@ class _SessionStore:
 def _summarize(name: str, result: dict[str, Any]) -> tuple[bool, str]:
     if isinstance(result, dict) and "error" in result:
         return False, str(result["error"])
-    if name == "analyze_codebase":
-        return True, (f"{result.get('files_analyzed')} files, quality "
-                      f"{result.get('metrics', {}).get('quality_score')}/100, "
-                      f"{len(result.get('security_findings', []))} security finding(s)")
-    if name == "run_tests":
-        if result.get("framework") is None:
-            return True, "no test setup detected"
-        return True, f"{result.get('framework')}: passed={result.get('passed')}"
-    if name == "check_dependencies":
-        return True, f"{result.get('dependency_count')} deps, {len(result.get('vulnerabilities', []))} vuln finding(s)"
-    if name == "generate_docs":
-        return True, f"{result.get('symbols')} symbol(s) documented"
-    if name == "deploy_preview":
-        return True, f"{result.get('status')} ({result.get('preview_url')})"
-    if name == "rollback_changes":
-        return True, f"status={result.get('status')}"
+    if name == "monitor_services":
+        s = result.get("summary", {})
+        return True, f"{s.get('overall')}: {s.get('healthy')} healthy / {s.get('degraded')} degraded, {s.get('alerting')} alert(s)"
+    if name == "analyze_logs":
+        return True, f"{result.get('total_matched')} entries, {len(result.get('anomalies', []))} anomaly(ies)"
+    if name == "fleet_status":
+        return True, f"{len(result.get('services', []))} services"
+    if name in ("deploy_application", "scale_resources", "backup_data", "rotate_secrets"):
+        return True, "planned" if result.get("planned") else "applied"
     return True, "ok"
 
 
@@ -87,7 +79,7 @@ class GeminiAgent:
     name = "gemini"
 
     def __init__(self, model: str | None = None, api_key: str | None = None) -> None:
-        self.model = model or os.getenv("SMARTDEV_MODEL") or os.getenv("QUICKDATA_MODEL", DEFAULT_MODEL)
+        self.model = model or os.getenv("INFRA_MODEL") or os.getenv("QUICKDATA_MODEL", DEFAULT_MODEL)
         self._api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         self._client = None
         self._sessions = _SessionStore()

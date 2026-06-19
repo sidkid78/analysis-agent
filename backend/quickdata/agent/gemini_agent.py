@@ -18,7 +18,7 @@ from . import tools
 from .base import AgentError, AgentEvent, AgentResult, AgentToolCall
 
 DEFAULT_MODEL = "gemini-3.5-flash"
-MAX_STEPS = 8
+MAX_STEPS = 25
 MAX_SESSIONS = 200
 
 SYSTEM_INSTRUCTION = """\

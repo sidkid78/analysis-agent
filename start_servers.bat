@@ -48,6 +48,10 @@ REM 4. Start Backend Server
 echo Starting Backend API (uv run quickdata-api)...
 start "Quick Data - Backend API" /D "%~dp0backend" cmd /k "uv run quickdata-api"
 
+REM 4b. Start Infrastructure Automation API (powers the /infra tab)
+echo Starting Infra API (uv run infra-api)...
+start "Infra Automation - API" /D "%~dp0infra" cmd /k "uv run infra-api"
+
 REM 5. Detect Node Package Manager and Start Frontend Server
 echo Starting Frontend UI (Next.js)...
 where pnpm >nul 2>&1
@@ -59,9 +63,10 @@ if %ERRORLEVEL% equ 0 (
 
 echo(
 echo =====================================================================
-echo [SUCCESS] Both servers are launching in separate windows!
+echo [SUCCESS] Servers are launching in separate windows!
 echo(
 echo   - Backend API: http://127.0.0.1:8020 (Docs: http://127.0.0.1:8020/docs)
+echo   - Infra API:   http://127.0.0.1:8040 (Docs: http://127.0.0.1:8040/docs)
 echo   - Frontend UI: http://localhost:3000
 echo(
 echo   To stop the servers, simply close their respective console windows.

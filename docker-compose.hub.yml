@@ -28,6 +28,15 @@ services:
       - ${PROJECTS_DIR:-.}:/workspace:ro
     restart: unless-stopped
 
+  infra:
+    image: ${DOCKERHUB_USER:-sidkid1978}/infra-automation-api:${TAG:-latest}
+    pull_policy: always
+    ports:
+      - "8040:8040"
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    restart: unless-stopped
+
   frontend:
     image: ${DOCKERHUB_USER:-sidkid1978}/quickdata-frontend:${TAG:-latest}
     pull_policy: always
@@ -36,4 +45,5 @@ services:
     depends_on:
       - backend
       - smart-dev
+      - infra
     restart: unless-stopped

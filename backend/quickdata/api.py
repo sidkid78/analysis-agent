@@ -22,7 +22,7 @@ from .config import DATA_DIR
 from .engine import analysis, charts, pdf, playbooks, quality, query, report
 from .engine.store import DatasetError, default_store
 
-app = FastAPI(title="Quick Data API", version="0.1.0")
+app = FastAPI(title="Quick Data API", version="0.3.0")
 store = default_store
 agent = GeminiAgent()
 

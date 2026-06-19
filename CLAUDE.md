@@ -4,16 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-A monorepo of two Python MCP servers and one shared Next.js frontend. The
-governing idea: write analysis/build logic **once in a pandas/AST engine** and
+A monorepo of three Python MCP servers and one shared Next.js frontend. The
+governing idea: write analysis/build/ops logic **once in a pure core** and
 expose it across four surfaces — Web UI, in-app Gemini chat agent, MCP server
 (tools + prompts), and HTTP API.
 
 - **`backend/`** — *Quick Data*: arbitrary JSON/CSV analysis. Package `quickdata`.
 - **`smart-dev/`** — *Smart Dev*: a senior-dev pair-programmer for code analysis
   (complexity, tests, deps, docs, deploy preview, rollback). Package `smart_dev`.
+- **`infra/`** — *Infrastructure Automation*: a senior-SRE pair-programmer over a
+  deterministic simulated fleet (monitoring, deployment, scaling, backup, secret
+  rotation, log analysis). Package `infra_automation`.
 - **`frontend/`** — Next.js 16 / React 19 UI. Main app (`/`) drives Quick Data;
-  the `/dev` route drives Smart Dev.
+  the `/dev` route drives Smart Dev; the `/infra` route drives Infra Automation.
 
 The root `main.py` / root `pyproject.toml` are a leftover `uv` scaffold and are
 **not** part of any product — ignore them.
@@ -39,6 +42,14 @@ uv run smart-dev-api          # FastAPI on http://127.0.0.1:8030
 uv run pytest
 ```
 
+**Infrastructure Automation** (`cd infra`, Python ≥3.10):
+```bash
+uv venv && uv pip install -e ".[dev]"
+uv run infra-mcp              # MCP server, stdio transport
+uv run infra-api              # FastAPI on http://127.0.0.1:8040
+uv run pytest
+```
+
 **Frontend** (`cd frontend`, pnpm):
 ```bash
 pnpm install
@@ -47,16 +58,16 @@ pnpm build
 pnpm lint                     # eslint
 ```
 
-**Everything at once:** `start_servers.bat` (Windows: backend + frontend) or
-`GEMINI_API_KEY=... docker compose up --build` (all three services).
+**Everything at once:** `start_servers.bat` (Windows: Quick Data API + Infra API
++ frontend) or `GEMINI_API_KEY=... docker compose up --build` (all four services).
 
-Both MCP servers are registered for Claude Code in `.mcp.json` at the repo root
-(absolute Windows paths). After changing MCP tool/prompt signatures, the client
-must reconnect to pick them up.
+All three MCP servers are registered for Claude Code in `.mcp.json` at the repo
+root (absolute Windows paths). After changing MCP tool/prompt signatures, the
+client must reconnect to pick them up.
 
 ## Architecture
 
-### The shared-engine pattern (both backends follow it)
+### The shared-engine pattern (all three backends follow it)
 
 A backend is structured as a pure core wrapped by thin transports:
 
@@ -129,6 +140,37 @@ by `run_build`, simulated URL). `rollback_changes` **plans by default** and only
 executes (via `git revert`, a new reversible commit) when called with
 `confirm=true`. All tools take **absolute** project paths.
 
+### Infrastructure Automation internals (`infra/infra_automation/`)
+
+Its core is `fleet/` — like Quick Data's engine, but the shared state is a
+**deterministic simulated fleet** rather than loaded data:
+
+- **`fleet/model.py`** — the pure core: `Service`/`Resource`/`Secret`/
+  `BackupRecord`/`Deployment` dataclasses and the `Fleet` class, plus the
+  process-wide `default_fleet` (the infra equivalent of `default_store`).
+  Metrics are derived from a `sha256` hash of (entity, clock), so the same state
+  always yields the same readings — an honest simulation, **not random noise**.
+  State changes only when a tool mutates it; `reset()` restores the seeded
+  topology. **No MCP / HTTP / LLM imports.**
+- **`fleet/`** operation modules — `monitoring`, `deployment`, `scaling`,
+  `backup`, `secrets`, `logs`. Each is a function over the `Fleet`; `FleetError`
+  is the user-facing error type.
+- **`mcp_server.py`** — wraps the operations as tools (`monitor_services`,
+  `deploy_application`, `scale_resources`, `backup_data`, `rotate_secrets`,
+  `analyze_logs`, `fleet_status`, `reset_fleet`) and six workflow prompts
+  (`infra-health-check`, `deployment-strategy`, `scaling-analysis`,
+  `incident-response`, `security-audit`, `disaster-recovery`); `list-infra-assets`
+  is inline. The `_guard` decorator turns `FleetError` into a clean
+  `{"error": ...}` JSON message. Like Quick Data, the MCP server and HTTP API
+  **share `default_fleet`** in-process.
+- **`api.py`** / **`agent/`** — same shape as the others; the agent streams
+  `session | text | tool | done | error` (**no `chart`**, like Smart Dev).
+
+**Safety conventions:** the mutating tools (`deploy_application`,
+`scale_resources`, `backup_data`, `rotate_secrets`) **plan by default** and only
+apply state changes when called with `confirm=true`, mirroring Smart Dev's
+`rollback_changes`.
+
 ## Frontend — read before writing code
 
 `frontend/CLAUDE.md` points to `frontend/AGENTS.md`, which warns: **this is
@@ -141,17 +183,20 @@ relying on training data, and use `ctx7` for library docs per global rules.
 - `app/lib/chat.ts` — SSE stream parser for the chat agent.
 - `app/lib/smartdev.ts` — client for the Smart Dev API (`NEXT_PUBLIC_SMARTDEV_API_BASE`,
   default port 8030), used by the `/dev` route.
+- `app/lib/infra.ts` — client for the Infra Automation API (`NEXT_PUBLIC_INFRA_API_BASE`,
+  default port 8040), used by the `/infra` route.
 
 ## Configuration
 
 | Variable | Used by | Purpose |
 | --- | --- | --- |
-| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | both backends | Enables the chat agent |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | all backends | Enables the chat agent |
 | `QUICKDATA_MODEL` | backend | Override model (default `gemini-3.5-flash`) |
 | `QUICKDATA_DATA_DIR` | backend | Bundled sample data location (set in Docker) |
 | `SMART_DEV_DEBUG=1` | smart-dev | Log to stderr (else `smart-dev-env.log`) |
 | `NEXT_PUBLIC_API_BASE` | frontend (build time) | Quick Data backend URL |
 | `NEXT_PUBLIC_SMARTDEV_API_BASE` | frontend (build time) | Smart Dev backend URL |
+| `NEXT_PUBLIC_INFRA_API_BASE` | frontend (build time) | Infra Automation backend URL |
 
 Frontend `NEXT_PUBLIC_*` vars are **baked at build time** into the JS bundle
 (see Docker build args), not read at runtime.
