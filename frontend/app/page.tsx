@@ -9,8 +9,11 @@ import {
   type DatasetInfo,
   type PlaybookResult,
   type SegmentResult,
+  type SqlResult,
   type Suggestion,
   type Suggestions,
+  type TransformOperation,
+  type TransformResult,
 } from "./lib/api";
 import { Chart } from "./components/Chart";
 import { ChatPanel } from "./components/ChatPanel";
@@ -27,6 +30,16 @@ export default function Home() {
   const [chart, setChart] = useState<ChartSpec | null>(null);
   const [playbook, setPlaybook] = useState<PlaybookResult | null>(null);
   const [threshold, setThreshold] = useState(0.5);
+  const [sqlText, setSqlText] = useState("");
+  const [sqlResult, setSqlResult] = useState<SqlResult | null>(null);
+  const [transformNote, setTransformNote] = useState<string | null>(null);
+  const [filterCond, setFilterCond] = useState("");
+  const [filterKeep, setFilterKeep] = useState(true);
+  const [computeName, setComputeName] = useState("");
+  const [computeExpr, setComputeExpr] = useState("");
+  const [tCol, setTCol] = useState("");
+  const [tOp, setTOp] = useState<TransformOperation>("normalize");
+  const [tParams, setTParams] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [offline, setOffline] = useState(false);
@@ -77,6 +90,9 @@ export default function Home() {
       setChart(null);
       setCorrelations(null);
       setPlaybook(null);
+      setSqlResult(null);
+      setTransformNote(null);
+      setSqlText(`SELECT * FROM ${sqlTable(name)} LIMIT 20`);
       const res = await run(async () => ({
         breakdown: await api.breakdown(name),
         suggestions: await api.suggestions(name),
@@ -84,6 +100,7 @@ export default function Home() {
       if (res) {
         setBreakdown(res.breakdown);
         setSuggestions(res.suggestions);
+        setTCol(res.breakdown.columns[0]?.name ?? "");
       }
     },
     [run],
@@ -133,6 +150,51 @@ export default function Home() {
     if (!selected) return;
     const res = await run(() => api.playbook(selected, pb));
     if (res) setPlaybook(res);
+  }
+
+  async function runSql() {
+    if (!sqlText.trim()) return;
+    const res = await run(() => api.runSql(sqlText));
+    if (res) setSqlResult(res);
+  }
+
+  // Every transform produces a new dataset; surface it and refresh the sidebar.
+  async function afterTransform(res: TransformResult | undefined) {
+    if (!res) return;
+    setTransformNote(
+      `Created "${res.transformed_dataset}" (${res.result.rows} rows · ${res.result.column_count} cols).`,
+    );
+    await refreshDatasets();
+  }
+
+  async function applyFilter() {
+    if (!selected || !filterCond.trim()) return;
+    await afterTransform(
+      await run(() => api.filter(selected, { condition: filterCond, keep: filterKeep })),
+    );
+  }
+
+  async function applyCompute() {
+    if (!selected || !computeName.trim() || !computeExpr.trim()) return;
+    await afterTransform(
+      await run(() => api.compute(selected, { new_column: computeName, expression: computeExpr })),
+    );
+  }
+
+  async function applyTransform() {
+    if (!selected || !tCol) return;
+    let params: Record<string, unknown> | undefined;
+    if (tParams.trim()) {
+      try {
+        params = JSON.parse(tParams);
+      } catch {
+        setError("Params must be valid JSON, e.g. {\"method\": \"zscore\"}.");
+        return;
+      }
+    }
+    await afterTransform(
+      await run(() => api.transform(selected, { column: tCol, operation: tOp, params })),
+    );
   }
 
   function triggerDownload(blob: Blob, filename: string) {
@@ -271,6 +333,72 @@ export default function Home() {
             </div>
           )}
 
+          {datasets.length > 0 && !offline && (
+            <Panel title="SQL">
+              <p className="mb-2 text-xs text-zinc-500">
+                Read-only SELECT/WITH over loaded datasets — JOINs across datasets
+                allowed. Tables:{" "}
+                <code className="rounded bg-black/5 px-1 dark:bg-white/10">
+                  {datasets.map((d) => sqlTable(d.name)).join(", ")}
+                </code>
+              </p>
+              <textarea
+                value={sqlText}
+                onChange={(e) => setSqlText(e.target.value)}
+                spellCheck={false}
+                rows={3}
+                placeholder="SELECT region, COUNT(*) AS n FROM orders GROUP BY region"
+                className="w-full resize-y rounded-lg border border-black/15 bg-transparent px-3 py-2 font-mono text-xs dark:border-white/15"
+              />
+              <div className="mt-2 flex items-center gap-3">
+                <button
+                  onClick={runSql}
+                  disabled={busy}
+                  className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-50"
+                >
+                  Run query
+                </button>
+                {sqlResult && (
+                  <span className="text-xs text-zinc-500">
+                    {sqlResult.result_rows} row(s)
+                    {sqlResult.returned_rows < sqlResult.result_rows
+                      ? ` · showing first ${sqlResult.returned_rows}`
+                      : ""}
+                  </span>
+                )}
+              </div>
+              {sqlResult && sqlResult.rows.length > 0 && (
+                <div className="mt-3 max-h-80 overflow-auto rounded-lg border border-black/10 dark:border-white/10">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-white text-left text-xs uppercase text-zinc-500 dark:bg-zinc-900">
+                      <tr>
+                        {sqlResult.columns.map((c) => (
+                          <th key={c} className="px-3 py-1.5 font-medium">
+                            {c}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sqlResult.rows.map((row, i) => (
+                        <tr key={i} className="border-t border-black/5 dark:border-white/5">
+                          {sqlResult.columns.map((c) => (
+                            <td key={c} className="px-3 py-1 tabular-nums">
+                              {fmt(row[c])}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {sqlResult && sqlResult.rows.length === 0 && (
+                <p className="mt-3 text-sm text-zinc-500">Query returned no rows.</p>
+              )}
+            </Panel>
+          )}
+
           {breakdown && selected && (
             <>
               <Panel title={`Breakdown — ${breakdown.dataset}`}>
@@ -288,6 +416,118 @@ export default function Home() {
                       {c.name}
                     </span>
                   ))}
+                </div>
+              </Panel>
+
+              <Panel title="Transform → new dataset">
+                <p className="mb-3 text-xs text-zinc-500">
+                  Non-destructive: each action writes a new{" "}
+                  <code className="rounded bg-black/5 px-1 dark:bg-white/10">
+                    {selected}_transformed
+                  </code>{" "}
+                  dataset and leaves <code>{selected}</code> untouched.
+                </p>
+                {transformNote && (
+                  <div className="mb-3 rounded-lg border border-emerald-300/50 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+                    {transformNote}
+                  </div>
+                )}
+                <div className="grid gap-5 md:grid-cols-3">
+                  {/* Filter rows */}
+                  <div className="flex flex-col gap-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      Filter rows
+                    </h3>
+                    <input
+                      value={filterCond}
+                      onChange={(e) => setFilterCond(e.target.value)}
+                      placeholder="order_value > 100"
+                      className="rounded-md border border-black/15 bg-transparent px-2 py-1 font-mono text-xs dark:border-white/15"
+                    />
+                    <label className="flex items-center gap-2 text-xs text-zinc-500">
+                      <input
+                        type="checkbox"
+                        checked={filterKeep}
+                        onChange={(e) => setFilterKeep(e.target.checked)}
+                      />
+                      keep matching rows
+                    </label>
+                    <button
+                      onClick={applyFilter}
+                      disabled={busy}
+                      className={transformBtn}
+                    >
+                      Apply filter
+                    </button>
+                  </div>
+
+                  {/* Add computed column */}
+                  <div className="flex flex-col gap-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      Add column
+                    </h3>
+                    <input
+                      value={computeName}
+                      onChange={(e) => setComputeName(e.target.value)}
+                      placeholder="new column name"
+                      className="rounded-md border border-black/15 bg-transparent px-2 py-1 text-xs dark:border-white/15"
+                    />
+                    <input
+                      value={computeExpr}
+                      onChange={(e) => setComputeExpr(e.target.value)}
+                      placeholder="revenue - cost"
+                      className="rounded-md border border-black/15 bg-transparent px-2 py-1 font-mono text-xs dark:border-white/15"
+                    />
+                    <button
+                      onClick={applyCompute}
+                      disabled={busy}
+                      className={transformBtn}
+                    >
+                      Add column
+                    </button>
+                  </div>
+
+                  {/* Transform column */}
+                  <div className="flex flex-col gap-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      Transform column
+                    </h3>
+                    <select
+                      value={tCol}
+                      onChange={(e) => setTCol(e.target.value)}
+                      className="rounded-md border border-black/15 bg-transparent px-2 py-1 text-xs dark:border-white/15"
+                    >
+                      {breakdown.columns.map((c) => (
+                        <option key={c.name} value={c.name}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={tOp}
+                      onChange={(e) => setTOp(e.target.value as TransformOperation)}
+                      className="rounded-md border border-black/15 bg-transparent px-2 py-1 text-xs dark:border-white/15"
+                    >
+                      {TRANSFORM_OPS.map((o) => (
+                        <option key={o} value={o}>
+                          {o}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      value={tParams}
+                      onChange={(e) => setTParams(e.target.value)}
+                      placeholder={OP_PARAM_HINT[tOp]}
+                      className="rounded-md border border-black/15 bg-transparent px-2 py-1 font-mono text-xs dark:border-white/15"
+                    />
+                    <button
+                      onClick={applyTransform}
+                      disabled={busy}
+                      className={transformBtn}
+                    >
+                      Apply
+                    </button>
+                  </div>
                 </div>
               </Panel>
 
@@ -488,6 +728,52 @@ export default function Home() {
       </div>
     </div>
   );
+}
+
+const transformBtn =
+  "mt-auto rounded-md border border-black/15 px-3 py-1.5 text-sm transition hover:border-indigo-400 hover:bg-indigo-50 disabled:opacity-50 dark:border-white/15 dark:hover:bg-indigo-500/10";
+
+const TRANSFORM_OPS: TransformOperation[] = [
+  "to_numeric",
+  "to_datetime",
+  "to_categorical",
+  "parse_json",
+  "extract_pattern",
+  "fill_missing",
+  "normalize",
+  "bin",
+  "map_values",
+  "split",
+  "strip",
+  "lowercase",
+  "uppercase",
+  "replace",
+];
+
+// Per-operation hint shown in the params input; mirrors the engine's expected keys.
+const OP_PARAM_HINT: Record<TransformOperation, string> = {
+  to_numeric: "no params",
+  to_datetime: '{"format": "%Y-%m-%d"} (optional)',
+  to_categorical: "no params",
+  parse_json: '{"expand": true} (optional)',
+  extract_pattern: '{"pattern": "(\\\\d+)"}',
+  fill_missing: '{"method": "median"}  (value|ffill|bfill|mean|median|mode)',
+  normalize: '{"method": "zscore"}  (minmax|zscore|robust)',
+  bin: '{"bins": 4}',
+  map_values: '{"mapping": {"A": 1, "B": 2}}',
+  split: '{"delimiter": ","}',
+  strip: "no params",
+  lowercase: "no params",
+  uppercase: "no params",
+  replace: '{"old": "x", "new": "y"}',
+};
+
+// Mirror the engine's table-name sanitizer (engine/sql.py:_table_name).
+function sqlTable(name: string): string {
+  let t = name.replace(/\W+/g, "_").replace(/^_+|_+$/g, "");
+  if (!t) t = "dataset";
+  if (/^\d/.test(t)) t = `t_${t}`;
+  return t;
 }
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {

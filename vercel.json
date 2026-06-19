@@ -1,0 +1,21 @@
+{
+    "experimentalServices": {
+        "frontend": {
+            "routePrefix": "/"
+        },
+        "backend": {
+            "root": "backend",
+            "routePrefix": "/_/backend"
+        },
+        "smart_dev": {
+            "root": "smart-dev",
+            "routePrefix": "/_/smart_dev"
+        }
+    },
+    "routes": [
+        {
+            "src": "/((?!_/).*)",
+            "dest": "/index.html"
+        }
+    ]
+}

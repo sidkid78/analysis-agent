@@ -10,7 +10,7 @@ import random
 
 import pytest
 
-from quickdata.engine import analysis, charts
+from quickdata.engine import analysis, charts, quality, sql, transform
 from quickdata.engine.store import DatasetError, DatasetStore
 
 
@@ -100,3 +100,163 @@ def test_chart_scatter(store: DatasetStore):
     spec = charts.build_chart(store, "survey", "scatter", x="tenure_years", y="satisfaction_score")
     assert spec["type"] == "scatter"
     assert {"x", "y"} <= spec["data"][0].keys()
+
+
+def test_sql_select_group_by(store: DatasetStore):
+    result = sql.run_sql(
+        store, "SELECT region, COUNT(*) AS n FROM ecom GROUP BY region ORDER BY n DESC"
+    )
+    assert result["columns"] == ["region", "n"]
+    assert sum(r["n"] for r in result["rows"]) == store.info("ecom").rows
+    # counts must be plain ints, not numpy scalars
+    for r in result["rows"]:
+        assert isinstance(r["n"], int)
+        assert isinstance(r["region"], str)
+
+
+def test_sql_cross_dataset(store: DatasetStore):
+    # Both datasets are registered by default, so one query can touch both.
+    result = sql.run_sql(
+        store,
+        "SELECT (SELECT COUNT(*) FROM ecom) AS e, (SELECT COUNT(*) FROM survey) AS s",
+    )
+    assert set(result["tables"]) == {"ecom", "survey"}
+    row = result["rows"][0]
+    assert row["e"] == store.info("ecom").rows
+    assert row["s"] == store.info("survey").rows
+
+
+def test_sql_limit_caps_rows(store: DatasetStore):
+    result = sql.run_sql(store, "SELECT * FROM ecom", datasets=["ecom"], limit=5)
+    assert result["result_rows"] == store.info("ecom").rows
+    assert result["returned_rows"] == 5
+    assert len(result["rows"]) == 5
+
+
+def test_sql_rejects_writes(store: DatasetStore):
+    for stmt in ("DROP TABLE ecom", "DELETE FROM ecom", "UPDATE ecom SET region='x'"):
+        with pytest.raises(DatasetError):
+            sql.run_sql(store, stmt)
+
+
+def test_sql_bad_dataset(store: DatasetStore):
+    with pytest.raises(DatasetError):
+        sql.run_sql(store, "SELECT * FROM nope", datasets=["nope"])
+
+
+def test_sql_empty_query(store: DatasetStore):
+    with pytest.raises(DatasetError):
+        sql.run_sql(store, "   ")
+
+
+def test_sql_with_cte_allowed(store: DatasetStore):
+    result = sql.run_sql(
+        store,
+        "WITH big AS (SELECT * FROM ecom WHERE order_value > 100) "
+        "SELECT COUNT(*) AS n FROM big",
+        datasets=["ecom"],
+    )
+    assert result["rows"][0]["n"] >= 0
+
+
+def test_transform_is_non_destructive(store: DatasetStore):
+    out = transform.transform_column(store, "ecom", "order_value", "normalize")
+    assert out["transformed_dataset"] == "ecom_transformed"
+    # original untouched, new dataset created
+    assert store.frame("ecom")["order_value"].max() > 1.0
+    assert store.frame("ecom_transformed")["order_value"].max() <= 1.0 + 1e-9
+
+
+def test_transform_into_explicit_target(store: DatasetStore):
+    out = transform.transform_column(
+        store, "ecom", "region", "uppercase", into="ecom_up"
+    )
+    assert out["transformed_dataset"] == "ecom_up"
+    assert store.frame("ecom_up")["region"].iloc[0].isupper()
+
+
+def test_transform_bin_adds_column(store: DatasetStore):
+    out = transform.transform_column(
+        store, "ecom", "order_value", "bin", params={"bins": 4}
+    )
+    assert "order_value_binned" in out["new_columns"]
+    assert "order_value_binned" in store.frame("ecom_transformed").columns
+
+
+def test_transform_mean_fill_rejects_text(store: DatasetStore):
+    with pytest.raises(DatasetError):
+        transform.transform_column(store, "ecom", "region", "fill_missing",
+                                   params={"method": "mean"})
+
+
+def test_transform_bad_column(store: DatasetStore):
+    with pytest.raises(DatasetError):
+        transform.transform_column(store, "ecom", "nope", "to_numeric")
+
+
+def test_transform_unknown_operation(store: DatasetStore):
+    with pytest.raises(DatasetError):
+        transform.transform_column(store, "ecom", "order_value", "frobnicate")
+
+
+def test_add_column_eval(store: DatasetStore):
+    out = transform.add_column(store, "ecom", "doubled", "order_value * 2", into="ecom2")
+    df = store.frame("ecom2")
+    assert "doubled" in df.columns
+    assert abs(df["doubled"].iloc[0] - df["order_value"].iloc[0] * 2) < 1e-9
+
+
+def test_add_column_bad_expression(store: DatasetStore):
+    with pytest.raises(DatasetError):
+        transform.add_column(store, "ecom", "x", "no_such_col + 1")
+
+
+def test_filter_rows_keep_and_drop(store: DatasetStore):
+    kept = transform.filter_rows(store, "ecom", "order_value > 100", into="hi")
+    dropped = transform.filter_rows(store, "ecom", "order_value > 100", keep=False, into="lo")
+    assert kept["rows_after"] + dropped["rows_after"] == store.info("ecom").rows
+    assert store.frame("hi")["order_value"].min() > 100
+
+
+def test_filter_rows_bad_condition(store: DatasetStore):
+    with pytest.raises(DatasetError):
+        transform.filter_rows(store, "ecom", "this is not valid ===")
+
+
+def test_rename_columns(store: DatasetStore):
+    out = transform.rename_columns(store, "ecom", {"region": "area"}, into="ecom_r")
+    assert "area" in store.frame("ecom_r").columns
+    assert "region" not in store.frame("ecom_r").columns
+    # source unchanged
+    assert "region" in store.frame("ecom").columns
+
+
+def test_rename_columns_missing(store: DatasetStore):
+    with pytest.raises(DatasetError):
+        transform.rename_columns(store, "ecom", {"nope": "x"})
+
+
+def test_clean_new_tokens():
+    s = DatasetStore()
+    s.load_records(
+        "messy",
+        [
+            {"keep": 1, "const": "x", "junk": "N/A", "name": " Alice "},
+            {"keep": 2, "const": "x", "junk": "", "name": "Bob"},
+            {"keep": 2, "const": "x", "junk": "  ", "name": "Bob "},
+        ],
+    )
+    out = quality.clean(
+        s,
+        "messy",
+        ["standardize_missing", "strip_whitespace", "drop_constant", "drop_empty:0.5"],
+    )
+    cleaned = s.frame(out["cleaned_dataset"])
+    assert "const" not in cleaned.columns  # constant column dropped
+    assert "junk" not in cleaned.columns  # all-missing after standardize -> dropped
+    assert cleaned["name"].tolist() == ["Alice", "Bob", "Bob"]  # whitespace trimmed
+
+
+def test_clean_unknown_token_still_rejected(store: DatasetStore):
+    with pytest.raises(DatasetError):
+        quality.clean(store, "ecom", ["frobnicate"])
