@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..config import DATA_DIR
-from ..engine import analysis, charts, playbooks, quality, query, report
+from ..engine import analysis, charts, playbooks, quality, query, report, sql, transform
 from ..engine.store import DatasetError, default_store
 
 store = default_store
@@ -145,6 +145,91 @@ def run_query(
         return {"error": str(exc)}
 
 
+def run_sql(dataset_name: str, sql_query: str, limit: int = 100) -> dict[str, Any]:
+    """Run a read-only SQL query (SELECT/WITH) over loaded datasets; JOINs allowed.
+
+    Every loaded dataset is queryable as a table named after it. Use this for
+    joins or SQL the filter/group-by query DSL can't express.
+
+    Args:
+        dataset_name: A dataset involved in the query (others are also available).
+        sql_query: A single SELECT or WITH statement.
+        limit: Max rows returned. Default 100.
+    """
+    try:
+        return sql.run_sql(store, sql_query, limit=limit)
+    except DatasetError as exc:
+        return {"error": str(exc)}
+
+
+def transform_column(
+    dataset_name: str,
+    column: str,
+    operation: str,
+    params: dict[str, Any] | None = None,
+    into: str = "",
+) -> dict[str, Any]:
+    """Transform a column into a NEW dataset (non-destructive).
+
+    Args:
+        dataset_name: The dataset to transform.
+        column: The column to operate on.
+        operation: One of to_numeric, to_datetime, to_categorical, parse_json,
+            extract_pattern, fill_missing, normalize, bin, map_values, split,
+            strip, lowercase, uppercase, replace.
+        params: Operation options, e.g. {"method": "zscore"} or {"bins": 4}.
+        into: New dataset name. Defaults to '<dataset_name>_transformed'.
+    """
+    try:
+        return transform.transform_column(store, dataset_name, column, operation, params, into or None)
+    except DatasetError as exc:
+        return {"error": str(exc)}
+
+
+def add_column(dataset_name: str, new_column: str, expression: str, into: str = "") -> dict[str, Any]:
+    """Add a computed column from a pandas expression into a new dataset.
+
+    Args:
+        dataset_name: The dataset to extend.
+        new_column: Name for the new column.
+        expression: A pandas eval expression, e.g. "revenue - cost" or "price * qty".
+        into: New dataset name. Defaults to '<dataset_name>_transformed'.
+    """
+    try:
+        return transform.add_column(store, dataset_name, new_column, expression, into or None)
+    except DatasetError as exc:
+        return {"error": str(exc)}
+
+
+def filter_rows(dataset_name: str, condition: str, keep: bool = True, into: str = "") -> dict[str, Any]:
+    """Materialize a row subset into a new dataset via a pandas query condition.
+
+    Args:
+        dataset_name: The dataset to filter.
+        condition: A pandas query, e.g. "order_value > 100" or "region == 'East Coast'".
+        keep: Keep matching rows (True) or drop them (False).
+        into: New dataset name. Defaults to '<dataset_name>_transformed'.
+    """
+    try:
+        return transform.filter_rows(store, dataset_name, condition, keep, into or None)
+    except DatasetError as exc:
+        return {"error": str(exc)}
+
+
+def rename_columns(dataset_name: str, mapping: dict[str, str], into: str = "") -> dict[str, Any]:
+    """Rename columns into a new dataset via an {old: new} mapping (non-destructive).
+
+    Args:
+        dataset_name: The dataset to rename columns in.
+        mapping: Old-name to new-name mapping.
+        into: New dataset name. Defaults to '<dataset_name>_transformed'.
+    """
+    try:
+        return transform.rename_columns(store, dataset_name, mapping, into or None)
+    except DatasetError as exc:
+        return {"error": str(exc)}
+
+
 def profile_dataset(dataset_name: str) -> dict[str, Any]:
     """Profile data quality: nulls, duplicates, outliers, type issues, with fixes."""
     try:
@@ -224,8 +309,13 @@ TOOLS = [
     find_correlations,
     create_chart,
     run_query,
+    run_sql,
     profile_dataset,
     clean_dataset,
+    transform_column,
+    add_column,
+    filter_rows,
+    rename_columns,
     trend_analysis,
     run_playbook,
     generate_report,

@@ -88,6 +88,10 @@ through each transport. Don't put logic in `api.py` or `mcp_server.py`.
 
 `store.py` (load + schema classification + the process-wide `default_store`),
 `analysis.py`, `charts.py`, `query.py` (string-DSL filter/group/aggregate),
+`sql.py` (read-only SQL over an **ephemeral** in-memory SQLite built per call —
+no persistent mirror; all loaded datasets registered as tables so JOINs work),
+`transform.py` (**non-destructive** column/row transforms → new `<name>_transformed`
+dataset; `df.eval`/`df.query`, never bare `eval`),
 `quality.py` (profile + **non-destructive** clean → new `<name>_clean` dataset),
 `playbooks.py`, `report.py`, `pdf.py` (fpdf2, no native deps).
 

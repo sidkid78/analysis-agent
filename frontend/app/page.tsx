@@ -11,7 +11,10 @@ import {
   type ColumnInfo,
   type CorrelationResult,
   type DatasetInfo,
+  type SqlResult,
   type Suggestions,
+  type TransformOperation,
+  type TransformResult,
 } from "./lib/api";
 
 const KIND_COLOR: Record<string, string> = {
@@ -29,6 +32,9 @@ function hashFloat(s: string): number {
 const spark = (name: string) => Array.from({ length: 6 }, (_, i) => 20 + hashFloat(`${name}:${i}`) * 75);
 
 const panel: React.CSSProperties = { background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 16 };
+const fieldText: React.CSSProperties = { background: "var(--chip)", border: "1px solid var(--line)", borderRadius: 8, padding: "7px 10px", fontSize: 13, color: "var(--ink)", outline: "none" };
+const fieldMono: React.CSSProperties = { ...fieldText, fontSize: 12 };
+const applyBtn: React.CSSProperties = { marginTop: "auto", height: 32, border: "1px solid var(--line)", background: "var(--panel)", borderRadius: 9, fontSize: 13, color: "var(--ink-2)" };
 
 export default function QuickData() {
   const [datasets, setDatasets] = useState<DatasetInfo[]>([]);
@@ -44,6 +50,17 @@ export default function QuickData() {
   const [offline, setOffline] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inject, setInject] = useState<{ text: string; nonce: number }>({ text: "", nonce: 0 });
+  // SQL + non-destructive transform surface (mirrors the engine sql/transform modules).
+  const [sqlText, setSqlText] = useState("");
+  const [sqlResult, setSqlResult] = useState<SqlResult | null>(null);
+  const [transformNote, setTransformNote] = useState<string | null>(null);
+  const [filterCond, setFilterCond] = useState("");
+  const [filterKeep, setFilterKeep] = useState(true);
+  const [computeName, setComputeName] = useState("");
+  const [computeExpr, setComputeExpr] = useState("");
+  const [tCol, setTCol] = useState("");
+  const [tOp, setTOp] = useState<TransformOperation>("normalize");
+  const [tParams, setTParams] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const run = useCallback(async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
@@ -69,6 +86,9 @@ export default function QuickData() {
       setSelected(name);
       setCorrelations(null);
       setResult(null);
+      setSqlResult(null);
+      setTransformNote(null);
+      setSqlText(`SELECT * FROM ${sqlTable(name)} LIMIT 20`);
       const res = await run(async () => ({
         breakdown: await api.breakdown(name),
         suggestions: await api.suggestions(name),
@@ -78,6 +98,7 @@ export default function QuickData() {
         setBreakdown(res.breakdown);
         setSuggestions(res.suggestions);
         setCorrelations(res.correlations);
+        setTCol(res.breakdown.columns[0]?.name ?? "");
       }
     },
     [run],
@@ -148,6 +169,47 @@ export default function QuickData() {
       a.click();
       URL.revokeObjectURL(url);
     }
+  }
+
+  async function runSql() {
+    if (!sqlText.trim()) return;
+    const res = await run(() => api.runSql(sqlText));
+    if (res) setSqlResult(res);
+  }
+
+  // Every transform produces a new dataset; surface it and refresh the sidebar.
+  async function afterTransform(res: TransformResult | undefined) {
+    if (!res) return;
+    setTransformNote(
+      `Created "${res.transformed_dataset}" (${res.result.rows} rows · ${res.result.column_count} cols).`,
+    );
+    await refreshDatasets();
+  }
+
+  async function applyFilter() {
+    if (!selected || !filterCond.trim()) return;
+    await afterTransform(await run(() => api.filter(selected, { condition: filterCond, keep: filterKeep })));
+  }
+
+  async function applyCompute() {
+    if (!selected || !computeName.trim() || !computeExpr.trim()) return;
+    await afterTransform(
+      await run(() => api.compute(selected, { new_column: computeName, expression: computeExpr })),
+    );
+  }
+
+  async function applyTransform() {
+    if (!selected || !tCol) return;
+    let params: Record<string, unknown> | undefined;
+    if (tParams.trim()) {
+      try {
+        params = JSON.parse(tParams);
+      } catch {
+        setError('Params must be valid JSON, e.g. {"method": "zscore"}.');
+        return;
+      }
+    }
+    await afterTransform(await run(() => api.transform(selected, { column: tCol, operation: tOp, params })));
   }
 
   const cols = breakdown?.columns ?? [];
@@ -387,6 +449,109 @@ export default function QuickData() {
                   </div>
                 </div>
 
+                {/* SQL */}
+                <div style={{ ...panel, padding: "16px 18px", marginTop: 18 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                    <span style={{ fontSize: 15, fontWeight: 600 }}>SQL</span>
+                    <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>read-only · JOINs allowed</span>
+                  </div>
+                  <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)", marginBottom: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    tables: {datasets.map((d) => sqlTable(d.name)).join(", ")}
+                  </div>
+                  <textarea
+                    value={sqlText}
+                    onChange={(e) => setSqlText(e.target.value)}
+                    spellCheck={false}
+                    rows={3}
+                    placeholder="SELECT region, COUNT(*) AS n FROM orders GROUP BY region"
+                    className="mono"
+                    style={{ width: "100%", resize: "vertical", background: "var(--chip)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", fontSize: 12, color: "var(--ink)", outline: "none" }}
+                  />
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10 }}>
+                    <button onClick={runSql} disabled={busy} style={{ height: 32, padding: "0 16px", background: "var(--accent)", color: "var(--accent-ink)", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 500 }}>Run query</button>
+                    {sqlResult && (
+                      <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
+                        {sqlResult.result_rows} row(s){sqlResult.returned_rows < sqlResult.result_rows ? ` · showing first ${sqlResult.returned_rows}` : ""}
+                      </span>
+                    )}
+                  </div>
+                  {sqlResult && sqlResult.rows.length > 0 && (
+                    <div style={{ marginTop: 12, maxHeight: 320, overflow: "auto", border: "1px solid var(--line)", borderRadius: 10 }}>
+                      <table className="mono" style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr>
+                            {sqlResult.columns.map((c) => (
+                              <th key={c} style={{ position: "sticky", top: 0, background: "var(--panel)", textAlign: "left", padding: "8px 12px", color: "var(--ink-3)", fontWeight: 500, borderBottom: "1px solid var(--line)", whiteSpace: "nowrap" }}>{c}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sqlResult.rows.map((row, i) => (
+                            <tr key={i}>
+                              {sqlResult.columns.map((c) => (
+                                <td key={c} style={{ padding: "6px 12px", borderTop: "1px solid var(--line-2)", color: "var(--ink-2)", whiteSpace: "nowrap" }}>{fmt(row[c])}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {sqlResult && sqlResult.rows.length === 0 && (
+                    <div style={{ marginTop: 12, fontSize: 13, color: "var(--ink-3)" }}>Query returned no rows.</div>
+                  )}
+                </div>
+
+                {/* transform */}
+                <div style={{ ...panel, padding: "16px 18px", marginTop: 18 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 15, fontWeight: 600 }}>Transform</span>
+                    <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>→ {selected}_transformed</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--ink-3)", marginBottom: 12 }}>
+                    Non-destructive — each action writes a new dataset and leaves <span className="mono">{selected}</span> untouched.
+                  </div>
+                  {transformNote && (
+                    <div style={{ marginBottom: 12, border: "1px solid var(--ok)", background: "color-mix(in srgb, var(--ok) 12%, var(--panel))", color: "var(--ok)", borderRadius: 10, padding: "8px 12px", fontSize: 13 }}>{transformNote}</div>
+                  )}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+                    {/* Filter rows */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div className="mono" style={{ fontSize: 10, letterSpacing: 1, color: "var(--ink-3)" }}>FILTER ROWS</div>
+                      <input value={filterCond} onChange={(e) => setFilterCond(e.target.value)} placeholder="order_value > 100" className="mono" style={fieldMono} />
+                      <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "var(--ink-2)" }}>
+                        <input type="checkbox" checked={filterKeep} onChange={(e) => setFilterKeep(e.target.checked)} /> keep matching rows
+                      </label>
+                      <button onClick={applyFilter} disabled={busy} style={applyBtn}>Apply filter</button>
+                    </div>
+
+                    {/* Add computed column */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div className="mono" style={{ fontSize: 10, letterSpacing: 1, color: "var(--ink-3)" }}>ADD COLUMN</div>
+                      <input value={computeName} onChange={(e) => setComputeName(e.target.value)} placeholder="new column name" style={fieldText} />
+                      <input value={computeExpr} onChange={(e) => setComputeExpr(e.target.value)} placeholder="revenue - cost" className="mono" style={fieldMono} />
+                      <button onClick={applyCompute} disabled={busy} style={applyBtn}>Add column</button>
+                    </div>
+
+                    {/* Transform column */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div className="mono" style={{ fontSize: 10, letterSpacing: 1, color: "var(--ink-3)" }}>TRANSFORM COLUMN</div>
+                      <select value={tCol} onChange={(e) => setTCol(e.target.value)} style={fieldText}>
+                        {cols.map((c) => (
+                          <option key={c.name} value={c.name}>{c.name}</option>
+                        ))}
+                      </select>
+                      <select value={tOp} onChange={(e) => setTOp(e.target.value as TransformOperation)} style={fieldText}>
+                        {TRANSFORM_OPS.map((o) => (
+                          <option key={o} value={o}>{o}</option>
+                        ))}
+                      </select>
+                      <input value={tParams} onChange={(e) => setTParams(e.target.value)} placeholder={OP_PARAM_HINT[tOp]} className="mono" style={fieldMono} />
+                      <button onClick={applyTransform} disabled={busy} style={applyBtn}>Apply</button>
+                    </div>
+                  </div>
+                </div>
+
                 {error && <div style={{ marginTop: 16, color: "var(--crit)", fontSize: 12 }}>{error}</div>}
               </>
             )}
@@ -428,4 +593,52 @@ function KindLegend({ kind, label }: { kind: string; label: string }) {
       {label}
     </span>
   );
+}
+
+const TRANSFORM_OPS: TransformOperation[] = [
+  "to_numeric",
+  "to_datetime",
+  "to_categorical",
+  "parse_json",
+  "extract_pattern",
+  "fill_missing",
+  "normalize",
+  "bin",
+  "map_values",
+  "split",
+  "strip",
+  "lowercase",
+  "uppercase",
+  "replace",
+];
+
+// Per-operation hint shown in the params input; mirrors the engine's expected keys.
+const OP_PARAM_HINT: Record<TransformOperation, string> = {
+  to_numeric: "no params",
+  to_datetime: '{"format": "%Y-%m-%d"} (optional)',
+  to_categorical: "no params",
+  parse_json: '{"expand": true} (optional)',
+  extract_pattern: '{"pattern": "(\\\\d+)"}',
+  fill_missing: '{"method": "median"}  (value|ffill|bfill|mean|median|mode)',
+  normalize: '{"method": "zscore"}  (minmax|zscore|robust)',
+  bin: '{"bins": 4}',
+  map_values: '{"mapping": {"A": 1, "B": 2}}',
+  split: '{"delimiter": ","}',
+  strip: "no params",
+  lowercase: "no params",
+  uppercase: "no params",
+  replace: '{"old": "x", "new": "y"}',
+};
+
+// Mirror the engine's table-name sanitizer (engine/sql.py:_table_name).
+function sqlTable(name: string): string {
+  let t = name.replace(/\W+/g, "_").replace(/^_+|_+$/g, "");
+  if (!t) t = "dataset";
+  if (/^\d/.test(t)) t = `t_${t}`;
+  return t;
+}
+
+function fmt(v: unknown): string {
+  if (typeof v === "number") return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return v == null ? "—" : String(v);
 }
