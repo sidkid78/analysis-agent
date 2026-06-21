@@ -20,10 +20,11 @@ from . import prompts as P
 from . import tools as T
 from .agent.base import AgentError
 from .agent.gemini_agent import GeminiAgent
-from .utils import PathError
+from .utils import PathError, get_logger
 
 app = FastAPI(title="Smart Dev API", version="0.3.0")
 agent = GeminiAgent()
+logger = get_logger("smart_dev.api")
 
 app.add_middleware(
     CORSMiddleware,
@@ -158,8 +159,10 @@ def chat(req: ChatRequest) -> StreamingResponse:
                 yield _sse(ev.to_dict())
         except AgentError as exc:
             yield _sse({"type": "error", "message": str(exc)})
-        except Exception as exc:
-            yield _sse({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
+        except Exception:
+            # Log the detail server-side; never expose the stack trace to the client.
+            logger.exception("Unhandled error in chat stream (session %s)", session_id)
+            yield _sse({"type": "error", "message": "An internal error occurred while processing your request."})
 
     return StreamingResponse(
         events(),

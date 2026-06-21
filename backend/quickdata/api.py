@@ -7,6 +7,7 @@ same engine the MCP server uses.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from pathlib import Path
 from typing import Iterator
@@ -25,6 +26,7 @@ from .engine.store import DatasetError, default_store
 app = FastAPI(title="Quick Data API", version="0.3.0")
 store = default_store
 agent = GeminiAgent()
+logger = logging.getLogger(__name__)
 
 app.add_middleware(
     CORSMiddleware,
@@ -284,8 +286,10 @@ def chat(req: ChatRequest) -> StreamingResponse:
                 yield _sse(ev.to_dict())
         except AgentError as exc:
             yield _sse({"type": "error", "message": str(exc)})
-        except Exception as exc:  # don't leave the stream hanging on a crash
-            yield _sse({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
+        except Exception:  # don't leave the stream hanging on a crash
+            # Log the detail server-side; never expose the stack trace to the client.
+            logger.exception("Unhandled error in chat stream (session %s)", session_id)
+            yield _sse({"type": "error", "message": "An internal error occurred while processing your request."})
 
     return StreamingResponse(
         events(),
