@@ -21,15 +21,25 @@ def _guard(fn, *args, **kwargs) -> dict[str, Any]:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
-def analyze_codebase(path: str, max_files: int = 600) -> dict[str, Any]:
+def analyze_codebase(path: str, max_files: int = 600, diff_base: str = "") -> dict[str, Any]:
     """Static analysis of a project directory: complexity, quality score, issues,
-    and security/secret findings. Call this first to understand a codebase."""
-    return _guard(T.analyze_codebase, path, max_files=max_files)
+    and security/secret findings. Call this first to understand a codebase. Set
+    diff_base='HEAD' to analyze only files changed vs that git ref."""
+    return _guard(T.analyze_codebase, path, max_files=max_files, diff_base=diff_base)
 
 
 def run_tests(path: str) -> dict[str, Any]:
     """Detect and run the project's test suite (pytest or npm/pnpm test)."""
     return _guard(T.run_tests, path)
+
+
+def run_linter(path: str, typecheck: bool = False, diff_base: str = "") -> dict[str, Any]:
+    """Run real linters over a project — Ruff for Python, ESLint for JS/TS — and
+    return normalized findings (file, line, rule code, severity, message). Set
+    typecheck=True to also run mypy/tsc. Set diff_base='HEAD' to lint only files
+    changed vs that git ref. Use this for style/correctness/type issues;
+    analyze_codebase covers complexity."""
+    return _guard(T.run_linter, path, typecheck=typecheck, diff_base=diff_base)
 
 
 def check_dependencies(path: str, audit: bool = True) -> dict[str, Any]:
@@ -57,6 +67,7 @@ def rollback_changes(path: str, target: str = "HEAD", confirm: bool = False) -> 
 TOOLS = [
     analyze_codebase,
     run_tests,
+    run_linter,
     check_dependencies,
     generate_docs,
     deploy_preview,

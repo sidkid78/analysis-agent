@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..languages import BRANCH_TOKENS, SKIP_DIRS, detect_language
-from ..utils import FileCache, get_logger, resolve_dir
+from ..utils import FileCache, get_logger, git_changed_files, resolve_dir
 
 log = get_logger(__name__)
 _cache = FileCache()
@@ -43,17 +43,30 @@ _SECRET_RES = [
 _SEVERITY_WEIGHT = {"critical": 12, "high": 8, "warning": 3, "info": 1}
 
 
-def analyze_codebase(path: str, max_files: int = MAX_FILES) -> dict[str, Any]:
+def analyze_codebase(path: str, max_files: int = MAX_FILES, diff_base: str = "") -> dict[str, Any]:
     """Analyze a directory tree: complexity, issues, security, quality score.
 
     Args:
         path: Absolute path to the project/source directory.
         max_files: Safety cap on how many source files to analyze.
+        diff_base: If set (e.g. ``"HEAD"``), only analyze files changed vs this
+            git ref (working-tree changes + untracked).
     """
     root = resolve_dir(path)
-    log.info("analyze_codebase: %s", root)
+    log.info("analyze_codebase: %s (diff_base=%r)", root, diff_base)
 
-    files = _collect_files(root, max_files)
+    scope: dict[str, Any] = {"mode": "full"}
+    if diff_base:
+        changed, err = git_changed_files(root, diff_base)
+        if err:
+            return {"root": str(root), "files_analyzed": 0,
+                    "scope": {"mode": "diff", "base": diff_base, "error": err},
+                    "message": f"Could not scope to diff vs '{diff_base}': {err}"}
+        files = _select_changed(root, changed, max_files)
+        scope = {"mode": "diff", "base": diff_base, "files": len(files)}
+    else:
+        files = _collect_files(root, max_files)
+
     with ThreadPoolExecutor(max_workers=8) as pool:
         results = list(pool.map(lambda f: _cache.get_or_compute(f, _analyze_file), files))
 
@@ -95,6 +108,7 @@ def analyze_codebase(path: str, max_files: int = MAX_FILES) -> dict[str, Any]:
     quality = _quality_score(total_lines, issues, security)
     return {
         "root": str(root),
+        "scope": scope,
         "files_analyzed": len(file_summaries),
         "files_truncated": truncated,
         "languages": dict(sorted(languages.items(), key=lambda kv: -kv[1])),
@@ -118,13 +132,32 @@ def _collect_files(root: Path, max_files: int) -> list[Path]:
             break
         if any(part in SKIP_DIRS for part in p.parts):
             continue
-        if p.is_file() and detect_language(p.suffix):
-            try:
-                if p.stat().st_size <= MAX_FILE_BYTES:
-                    out.append(p)
-            except OSError:
-                continue
+        if _is_analyzable(p):
+            out.append(p)
     return out
+
+
+def _select_changed(root: Path, names: list[str], max_files: int) -> list[Path]:
+    """Filter git-changed names to analyzable source files (same rules as _collect_files)."""
+    out: list[Path] = []
+    for name in names:
+        if len(out) >= max_files:
+            break
+        p = root / name
+        if any(part in SKIP_DIRS for part in p.parts):
+            continue
+        if _is_analyzable(p):
+            out.append(p)
+    return out
+
+
+def _is_analyzable(p: Path) -> bool:
+    if not (p.is_file() and detect_language(p.suffix)):
+        return False
+    try:
+        return p.stat().st_size <= MAX_FILE_BYTES
+    except OSError:
+        return False
 
 
 def _analyze_file(path: Path) -> dict[str, Any] | None:

@@ -21,8 +21,17 @@ export interface Hotspot {
   issues: number;
 }
 
+export interface Scope {
+  mode: string;
+  base?: string;
+  files?: number;
+  error?: string;
+}
+
 export interface Analysis {
   root: string;
+  scope?: Scope;
+  message?: string;
   files_analyzed: number;
   files_truncated: boolean;
   languages: Record<string, number>;
@@ -41,6 +50,37 @@ export interface Analysis {
 export interface WorkflowResult {
   workflow: string;
   markdown: string;
+}
+
+export interface LintFinding {
+  tool: string;
+  file: string;
+  line: number | null;
+  column: number | null;
+  code: string | null;
+  severity: string;
+  message: string;
+  fixable?: boolean;
+}
+
+export interface LinterRun {
+  tool: string;
+  status: string;
+  found?: number;
+  returned?: number;
+  fixable?: number;
+  note?: string;
+}
+
+export interface LintResult {
+  project: string;
+  scope?: Scope;
+  linters: LinterRun[];
+  finding_count?: number;
+  by_severity?: Record<string, number>;
+  findings?: LintFinding[];
+  summary?: string;
+  message?: string;
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
@@ -74,7 +114,10 @@ export const WORKFLOWS: { id: string; label: string; needs?: "issue" | "target" 
 export const smartdev = {
   base: BASE,
   health: () => fetch(`${BASE}/api/health`).then((r) => r.json()),
-  analyze: (path: string) => post<Analysis>("/api/analyze", { path }),
+  analyze: (path: string, opts?: { diff_base?: string }) =>
+    post<Analysis>("/api/analyze", { path, ...opts }),
+  lint: (path: string, opts?: { typecheck?: boolean; diff_base?: string }) =>
+    post<LintResult>("/api/lint", { path, ...opts }),
   workflow: (name: string, body: { project_path?: string; issue?: string; target?: string }) =>
     post<WorkflowResult>(`/api/workflow/${name}`, body),
   // ChatClient surface

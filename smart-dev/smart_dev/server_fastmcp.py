@@ -42,9 +42,10 @@ def _guard(fn):
 
 @mcp.tool()
 @_guard
-def analyze_codebase(path: str, max_files: int = 600) -> str:
-    """Static analysis: complexity, quality score, issues, and security scan."""
-    return T.analyze_codebase(path, max_files=max_files)
+def analyze_codebase(path: str, max_files: int = 600, diff_base: str = "") -> str:
+    """Static analysis: complexity, quality score, issues, and security scan.
+    Set diff_base='HEAD' to analyze only files changed vs that git ref."""
+    return T.analyze_codebase(path, max_files=max_files, diff_base=diff_base)
 
 
 @mcp.tool()
@@ -52,6 +53,14 @@ def analyze_codebase(path: str, max_files: int = 600) -> str:
 def run_tests(path: str, timeout: int = 600) -> str:
     """Detect and run the project's test suite (pytest or npm/pnpm test)."""
     return T.run_tests(path, timeout=timeout)
+
+
+@mcp.tool()
+@_guard
+def run_linter(path: str, max_findings: int = 60, typecheck: bool = False, diff_base: str = "") -> str:
+    """Run real linters (Ruff/ESLint) + optional type-check (mypy/tsc). Set
+    diff_base='HEAD' to lint only files changed vs that git ref."""
+    return T.run_linter(path, max_findings=max_findings, typecheck=typecheck, diff_base=diff_base)
 
 
 @mcp.tool()
@@ -138,7 +147,10 @@ A senior-dev pair programmer. **Prompts** are guided workflows that compose the
 - `performance_audit(project_path)` — profiling-led optimization pipeline
 
 ## Tools
-- `analyze_codebase(path)` — complexity, quality score, issues, secrets
+- `analyze_codebase(path, diff_base?)` — complexity, quality score, issues,
+  secrets; `diff_base="HEAD"` scopes to changed files
+- `run_linter(path, typecheck?, diff_base?)` — Ruff/ESLint lint + optional
+  mypy/tsc type-check; `diff_base="HEAD"` scopes to changed files
 - `run_tests(path)` — pytest / npm test with a parsed summary
 - `check_dependencies(path)` — manifest inventory + optional audit
 - `generate_docs(path)` — Markdown API docs from source
