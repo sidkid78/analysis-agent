@@ -39,16 +39,22 @@ if %ERRORLEVEL% neq 0 (
     pause >nul
 )
 
-REM 3. Free port 8020 if already in use (stale process from a previous run)
-for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr ":8020 " 2^>nul') do (
-    if not "%%p"=="" taskkill /PID %%p /F >nul 2>&1
+REM 3. Free ports 8020/8030/8040 if already in use (stale processes from a previous run)
+for %%P in (8020 8030 8040) do (
+    for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr ":%%P " 2^>nul') do (
+        if not "%%p"=="" taskkill /PID %%p /F >nul 2>&1
+    )
 )
 
 REM 4. Start Backend Server
 echo Starting Backend API (uv run quickdata-api)...
 start "Quick Data - Backend API" /D "%~dp0backend" cmd /k "uv run quickdata-api"
 
-REM 4b. Start Infrastructure Automation API (powers the /infra tab)
+REM 4b. Start Smart Dev API (powers the /dev tab)
+echo Starting Smart Dev API (uv run smart-dev-api)...
+start "Smart Dev - API" /D "%~dp0smart-dev" cmd /k "uv run smart-dev-api"
+
+REM 4c. Start Infrastructure Automation API (powers the /infra tab)
 echo Starting Infra API (uv run infra-api)...
 start "Infra Automation - API" /D "%~dp0infra" cmd /k "uv run infra-api"
 
@@ -65,9 +71,10 @@ echo(
 echo =====================================================================
 echo [SUCCESS] Servers are launching in separate windows!
 echo(
-echo   - Backend API: http://127.0.0.1:8020 (Docs: http://127.0.0.1:8020/docs)
-echo   - Infra API:   http://127.0.0.1:8040 (Docs: http://127.0.0.1:8040/docs)
-echo   - Frontend UI: http://localhost:3000
+echo   - Backend API:   http://127.0.0.1:8020 (Docs: http://127.0.0.1:8020/docs)
+echo   - Smart Dev API: http://127.0.0.1:8030 (Docs: http://127.0.0.1:8030/docs)
+echo   - Infra API:     http://127.0.0.1:8040 (Docs: http://127.0.0.1:8040/docs)
+echo   - Frontend UI:   http://localhost:3000
 echo(
 echo   To stop the servers, simply close their respective console windows.
 echo =====================================================================

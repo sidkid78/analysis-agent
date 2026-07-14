@@ -2,7 +2,9 @@
 
 from .analyze_codebase import analyze_codebase
 from .run_tests import run_tests
+from .run_linter import run_linter
 from .check_dependencies import check_dependencies
+from .fix_dependencies import fix_dependencies
 from .generate_docs import generate_docs
 from .deploy_preview import deploy_preview
 from .rollback_changes import rollback_changes
@@ -10,7 +12,9 @@ from .rollback_changes import rollback_changes
 __all__ = [
     "analyze_codebase",
     "run_tests",
+    "run_linter",
     "check_dependencies",
+    "fix_dependencies",
     "generate_docs",
     "deploy_preview",
     "rollback_changes",

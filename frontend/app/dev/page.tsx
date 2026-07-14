@@ -5,11 +5,12 @@ import { useCallback, useEffect, useState } from "react";
 import { AgentChat } from "../components/AgentChat";
 import { Markdown } from "../components/Markdown";
 import { Rail } from "../components/Rail";
-import { smartdev, WORKFLOWS, type Analysis, type WorkflowResult } from "../lib/smartdev";
+import { smartdev, WORKFLOWS, type Analysis, type LintResult, type WorkflowResult } from "../lib/smartdev";
 
 const SEV_COLOR: Record<string, string> = {
   critical: "var(--crit)",
   high: "#FB7185",
+  error: "#FB7185",
   warning: "var(--warn)",
   info: "var(--ink-3)",
 };
@@ -27,6 +28,9 @@ function shorten(p: string): string {
 export default function SmartDev() {
   const [path, setPath] = useState("");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [lint, setLint] = useState<LintResult | null>(null);
+  const [typecheck, setTypecheck] = useState(false);
+  const [diffOnly, setDiffOnly] = useState(false);
   const [workflow, setWorkflow] = useState<WorkflowResult | null>(null);
   const [activeWf, setActiveWf] = useState<string | null>(null);
   const [detail, setDetail] = useState("");
@@ -55,9 +59,23 @@ export default function SmartDev() {
     if (!path.trim()) return;
     setWorkflow(null);
     setActiveWf(null);
-    const res = await run(() => smartdev.analyze(path.trim()));
+    const res = await run(() => smartdev.analyze(path.trim(), { diff_base: diffOnly ? "HEAD" : "" }));
     if (res) setAnalysis(res);
   }
+
+  const runLint = useCallback(
+    async (opts: { typecheck: boolean; diffOnly: boolean }) => {
+      if (!path.trim()) {
+        setError("Enter a project path first.");
+        return;
+      }
+      const res = await run(() =>
+        smartdev.lint(path.trim(), { typecheck: opts.typecheck, diff_base: opts.diffOnly ? "HEAD" : "" }),
+      );
+      if (res) setLint(res);
+    },
+    [path, run],
+  );
 
   async function runWorkflow(id: string) {
     if (!path.trim()) {
@@ -103,6 +121,17 @@ export default function SmartDev() {
                 className="mono"
                 style={{ flex: 1, fontSize: 12, color: "var(--ink)", background: "transparent", border: "none", outline: "none" }}
               />
+              <button
+                onClick={() => setDiffOnly((v) => !v)}
+                title="Scope Analyze and Lint to files changed vs HEAD"
+                style={{ height: 26, padding: "0 10px", display: "flex", alignItems: "center", gap: 6, background: diffOnly ? "var(--accent-tint)" : "transparent", color: diffOnly ? "var(--accent)" : "var(--ink-3)", border: `1px solid ${diffOnly ? "var(--accent)" : "var(--line)"}`, borderRadius: 7, fontSize: 11 }}
+              >
+                <span style={{ width: 5, height: 5, borderRadius: "50%", background: diffOnly ? "var(--accent)" : "var(--line)" }} />
+                diff
+              </button>
+              <button onClick={() => runLint({ typecheck, diffOnly })} disabled={busy || !path.trim()} style={{ height: 26, padding: "0 12px", background: "transparent", color: "var(--ink-2)", border: "1px solid var(--line)", borderRadius: 7, fontSize: 12, fontWeight: 500 }}>
+                Lint
+              </button>
               <button onClick={analyze} disabled={busy || !path.trim()} style={{ height: 26, padding: "0 14px", background: "var(--accent)", color: "var(--accent-ink)", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 500 }}>
                 Analyze
               </button>
@@ -163,10 +192,24 @@ export default function SmartDev() {
 
           {/* MAIN */}
           <div style={{ flex: 1, minWidth: 0, background: "var(--bg)", overflowY: "auto", padding: "24px 26px" }}>
-            {!analysis && !offline && (
+            {!analysis && !lint && !offline && (
               <div style={{ border: "1px dashed var(--line)", borderRadius: 12, padding: 40, textAlign: "center", fontSize: 13, color: "var(--ink-3)" }}>
-                Enter an absolute project path above and Analyze — or just ask the agent on the right.
+                Enter an absolute project path above, then Analyze or Lint — or just ask the agent on the right.
               </div>
+            )}
+
+            {lint && (
+              <LintPanel
+                lint={lint}
+                busy={busy}
+                typecheck={typecheck}
+                onToggleTypecheck={() => {
+                  const next = !typecheck;
+                  setTypecheck(next);
+                  runLint({ typecheck: next, diffOnly });
+                }}
+                onClose={() => setLint(null)}
+              />
             )}
 
             {analysis && m && (
@@ -174,8 +217,13 @@ export default function SmartDev() {
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 18 }}>
                   <div>
                     <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-.5px" }}>{shorten(analysis.root)}</div>
-                    <div className="mono" style={{ fontSize: 12, color: "var(--ink-2)", marginTop: 3 }}>
-                      {analysis.files_analyzed} files · {analysis.total_lines.toLocaleString()} lines · analyzed just now
+                    <div className="mono" style={{ fontSize: 12, color: "var(--ink-2)", marginTop: 3, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span>{analysis.files_analyzed} files · {analysis.total_lines.toLocaleString()} lines · analyzed just now</span>
+                      {analysis.scope?.mode === "diff" && (
+                        <span style={{ color: "var(--accent)", background: "var(--accent-tint)", border: "1px solid var(--accent-soft)", borderRadius: 6, padding: "1px 7px", fontSize: 11 }}>
+                          diff vs {analysis.scope.base ?? "HEAD"} · {analysis.scope.files ?? analysis.files_analyzed} changed
+                        </span>
+                      )}
                     </div>
                   </div>
                   <button onClick={analyze} disabled={busy} style={{ height: 34, padding: "0 14px", border: "1px solid var(--line)", background: "var(--panel)", borderRadius: 10, fontSize: 13, color: "var(--ink-2)" }}>Re-analyze</button>
@@ -333,5 +381,91 @@ function Tile({ value, label }: { value: string; label: string }) {
       <div className="mono" style={{ fontSize: 22, fontWeight: 700 }}>{value}</div>
       <div style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 2 }}>{label}</div>
     </div>
+  );
+}
+
+function Toggle({ on, label, onClick, disabled }: { on: boolean; label: string; onClick: () => void; disabled: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        height: 26, padding: "0 11px", fontSize: 12, borderRadius: 20, display: "flex", alignItems: "center", gap: 6,
+        border: `1px solid ${on ? "var(--accent)" : "var(--line)"}`,
+        background: on ? "var(--accent-tint)" : "transparent",
+        color: on ? "var(--accent)" : "var(--ink-2)",
+      }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: on ? "var(--accent)" : "var(--line)" }} />
+      {label}
+    </button>
+  );
+}
+
+function LintPanel({
+  lint, busy, typecheck, onToggleTypecheck, onClose,
+}: {
+  lint: LintResult;
+  busy: boolean;
+  typecheck: boolean;
+  onToggleTypecheck: () => void;
+  onClose: () => void;
+}) {
+  const findings = lint.findings ?? [];
+  const bySev = lint.by_severity ?? {};
+  const errors = bySev.error ?? 0;
+  const warnings = bySev.warning ?? 0;
+  return (
+    <div style={{ ...panel, padding: "16px 18px", marginBottom: 18 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 15, fontWeight: 600 }}>Linters</span>
+        <span className="mono" style={{ fontSize: 11, color: errors ? "var(--crit)" : "var(--ink-3)" }}>
+          {lint.finding_count ?? 0} finding{(lint.finding_count ?? 0) === 1 ? "" : "s"}
+        </span>
+        {errors > 0 && <Pill text={`${errors} error`} color="#FB7185" />}
+        {warnings > 0 && <Pill text={`${warnings} warning`} color="var(--warn)" />}
+        <div style={{ flex: 1 }} />
+        <Toggle on={typecheck} label="type-check" onClick={onToggleTypecheck} disabled={busy} />
+        <button onClick={onClose} disabled={busy} style={{ height: 26, width: 26, border: "1px solid var(--line)", background: "transparent", borderRadius: 7, color: "var(--ink-3)", fontSize: 13 }}>×</button>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: findings.length ? 12 : 0 }}>
+        {lint.linters.map((r) => {
+          const ok = r.status === "ok";
+          return (
+            <span key={r.tool} className="mono" style={{ fontSize: 11, border: "1px solid var(--line)", borderRadius: 7, padding: "3px 9px", color: ok ? "var(--ink-2)" : "var(--ink-3)" }}>
+              <span style={{ color: ok ? "var(--ok)" : "var(--ink-3)" }}>●</span> {r.tool}
+              {ok ? ` · ${r.found ?? 0}` : ` · ${r.status.split("—")[0].trim()}`}
+            </span>
+          );
+        })}
+        {lint.scope?.mode === "diff" && (
+          <span className="mono" style={{ fontSize: 11, border: "1px solid var(--accent-soft)", background: "var(--accent-tint)", color: "var(--accent)", borderRadius: 7, padding: "3px 9px" }}>
+            diff · {lint.scope.files ?? 0} file{(lint.scope.files ?? 0) === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
+
+      {findings.length > 0 ? (
+        <div className="mono" style={{ fontSize: 12, lineHeight: 2.1 }}>
+          {findings.slice(0, 14).map((f, i) => (
+            <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+              <span style={{ color: SEV_COLOR[f.severity] ?? "var(--ink-3)", width: 52, flex: "none" }}>{f.severity}</span>
+              <span style={{ color: "var(--ink-3)", width: 150, flex: "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f.file}:{f.line ?? "?"}</span>
+              <span style={{ color: "var(--ink-3)", width: 96, flex: "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f.tool}{f.code ? ` ${f.code}` : ""}</span>
+              <span style={{ color: "var(--ink-2)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f.message}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ fontSize: 13, color: "var(--ink-3)" }}>{lint.message ?? "No lint findings. 🎉"}</div>
+      )}
+    </div>
+  );
+}
+
+function Pill({ text, color }: { text: string; color: string }) {
+  return (
+    <span className="mono" style={{ fontSize: 11, color, background: `color-mix(in srgb, ${color} 16%, transparent)`, borderRadius: 20, padding: "1px 8px" }}>{text}</span>
   );
 }

@@ -47,11 +47,25 @@ def _handle(fn, *args, **kwargs):
 class PathRequest(BaseModel):
     path: str
     max_files: int = 600
+    diff_base: str = ""
+
+
+class LinterRequest(BaseModel):
+    path: str
+    max_findings: int = 60
+    typecheck: bool = False
+    diff_base: str = ""
 
 
 class DepsRequest(BaseModel):
     path: str
     audit: bool = True
+
+
+class FixDepsRequest(BaseModel):
+    path: str
+    confirm: bool = False
+    force: bool = False
 
 
 class DeployRequest(BaseModel):
@@ -86,7 +100,7 @@ def health() -> dict[str, str]:
 
 @app.post("/api/analyze")
 def analyze(req: PathRequest) -> dict:
-    return _handle(T.analyze_codebase, req.path, max_files=req.max_files)
+    return _handle(T.analyze_codebase, req.path, max_files=req.max_files, diff_base=req.diff_base)
 
 
 @app.post("/api/tests")
@@ -94,9 +108,20 @@ def tests(req: PathRequest) -> dict:
     return _handle(T.run_tests, req.path)
 
 
+@app.post("/api/lint")
+def lint(req: LinterRequest) -> dict:
+    return _handle(T.run_linter, req.path, max_findings=req.max_findings,
+                   typecheck=req.typecheck, diff_base=req.diff_base)
+
+
 @app.post("/api/dependencies")
 def dependencies(req: DepsRequest) -> dict:
     return _handle(T.check_dependencies, req.path, audit=req.audit)
+
+
+@app.post("/api/dependencies/fix")
+def fix_dependencies(req: FixDepsRequest) -> dict:
+    return _handle(T.fix_dependencies, req.path, confirm=req.confirm, force=req.force)
 
 
 @app.post("/api/docs")

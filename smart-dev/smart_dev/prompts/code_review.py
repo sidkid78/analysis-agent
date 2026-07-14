@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..tools import analyze_codebase
+from ..tools import analyze_codebase, run_linter
 from ..utils import PathError, resolve_dir
 
 
@@ -20,11 +20,16 @@ def code_review(project_path: str) -> str:
     sec = a["security_findings"]
     issues = a["issues"]
 
-    gate = "BLOCK" if sec else ("WARN" if q < 70 or issues else "PASS")
+    lint = run_linter(str(root))
+    lint_findings = lint.get("findings", [])
+    lint_errors = lint.get("by_severity", {}).get("error", 0)
+
+    gate = "BLOCK" if sec else ("WARN" if q < 70 or issues or lint_errors else "PASS")
     lines = [
         f"# Code review — `{root.name}`",
         "",
-        f"**Quality gate: {gate}**  ·  score {q}/100  ·  {len(issues)} issue(s)  ·  {len(sec)} security finding(s)",
+        f"**Quality gate: {gate}**  ·  score {q}/100  ·  {len(issues)} issue(s)  ·  "
+        f"{len(sec)} security finding(s)  ·  {lint.get('finding_count', 0)} lint finding(s)",
         "",
     ]
 
@@ -41,6 +46,21 @@ def code_review(project_path: str) -> str:
     else:
         lines.append("_no issues flagged_")
 
+    lines += ["", "## Linters"]
+    linters = lint.get("linters", [])
+    if linters:
+        statuses = ", ".join(f"{r['tool']} ({r.get('status', '?')})" for r in linters)
+        lines.append(f"_ran: {statuses}_")
+    if lint_findings:
+        for f in lint_findings[:12]:
+            code = f" `{f['code']}`" if f.get("code") else ""
+            lines.append(f"- **{f['severity']}** `{_rel(f['file'], root)}:{f.get('line', '?')}` "
+                         f"— {f['tool']}{code}: {f['message']}")
+    elif not linters:
+        lines.append("_no linters available (install `ruff`, or add an ESLint config)_")
+    else:
+        lines.append("_no lint findings_")
+
     hot = a["metrics"]["complexity_hotspots"]
     if hot:
         lines += ["", "## Complexity hotspots (review carefully)"]
@@ -51,10 +71,11 @@ def code_review(project_path: str) -> str:
         "",
         "## Review checklist",
         "1. Resolve all 🔴 security findings before merge.",
-        "2. Remove debug statements; address bare/swallowed exceptions.",
-        "3. Confirm tests cover changed code — `run_tests` next.",
-        "4. Audit dependencies — `check_dependencies`.",
-        "5. For risky areas, follow up with `refactor-planning`.",
+        "2. Clear linter errors — `run_linter` (add `typecheck=true` for mypy/tsc).",
+        "3. Remove debug statements; address bare/swallowed exceptions.",
+        "4. Confirm tests cover changed code — `run_tests` next.",
+        "5. Audit dependencies — `check_dependencies`.",
+        "6. For risky areas, follow up with `refactor-planning`.",
     ]
     return "\n".join(lines)
 

@@ -12,8 +12,10 @@ from smart_dev.tools import (
     analyze_codebase,
     check_dependencies,
     deploy_preview,
+    fix_dependencies,
     generate_docs,
     rollback_changes,
+    run_linter,
     run_tests,
 )
 from smart_dev.utils import PathError
@@ -47,6 +49,54 @@ def test_check_dependencies_no_audit():
     r = check_dependencies(SAMPLE, audit=False)
     assert "dependency_count" in r
     assert "audit skipped" in r["summary"]
+
+
+def test_run_linter_structure():
+    # Sample has Python, so a Python linter pass is attempted. Whether ruff is
+    # installed or not, the run should be well-formed and never raise.
+    r = run_linter(SAMPLE)
+    assert r["scope"]["mode"] == "full"
+    assert isinstance(r["linters"], list)
+    tools = {run["tool"] for run in r["linters"]}
+    assert "ruff" in tools
+    for run in r["linters"]:
+        assert "status" in run
+
+
+def test_run_linter_no_sources(tmp_path):
+    (tmp_path / "notes.txt").write_text("nothing to lint here")
+    r = run_linter(str(tmp_path))
+    assert r["linters"] == []
+    assert "No Python or JS/TS sources" in r["message"]
+
+
+def test_run_linter_diff_bad_ref(tmp_path):
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
+    (tmp_path / "a.py").write_text("x = 1\n")
+    r = run_linter(str(tmp_path), diff_base="no-such-ref")
+    assert r["scope"]["mode"] == "diff"
+    assert "error" in r["scope"]
+
+
+def test_fix_dependencies_needs_package_json(tmp_path):
+    # Python-only sample has no package.json — audit fix doesn't apply.
+    r = fix_dependencies(str(tmp_path))
+    assert "error" in r
+    assert "package.json" in r["error"]
+
+
+def test_fix_dependencies_plans_by_default(tmp_path):
+    # A JS project: plan mode must never mutate and must never raise, whether or
+    # not npm is installed / the ref resolves.
+    (tmp_path / "package.json").write_text('{"name": "t", "version": "1.0.0"}')
+    r = fix_dependencies(str(tmp_path))
+    # either a well-formed plan, or a clean "npm not installed" error
+    if "error" in r:
+        assert "not installed" in r["error"] or "not on PATH" in r["error"]
+    else:
+        assert r["status"] == "plan"
+        assert r["package_manager"] == "npm"
+        assert "next" in r
 
 
 def test_run_tests_detects_none():
