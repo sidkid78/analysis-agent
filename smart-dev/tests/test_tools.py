@@ -12,6 +12,7 @@ from smart_dev.tools import (
     analyze_codebase,
     check_dependencies,
     deploy_preview,
+    fix_dependencies,
     generate_docs,
     rollback_changes,
     run_linter,
@@ -75,6 +76,27 @@ def test_run_linter_diff_bad_ref(tmp_path):
     r = run_linter(str(tmp_path), diff_base="no-such-ref")
     assert r["scope"]["mode"] == "diff"
     assert "error" in r["scope"]
+
+
+def test_fix_dependencies_needs_package_json(tmp_path):
+    # Python-only sample has no package.json — audit fix doesn't apply.
+    r = fix_dependencies(str(tmp_path))
+    assert "error" in r
+    assert "package.json" in r["error"]
+
+
+def test_fix_dependencies_plans_by_default(tmp_path):
+    # A JS project: plan mode must never mutate and must never raise, whether or
+    # not npm is installed / the ref resolves.
+    (tmp_path / "package.json").write_text('{"name": "t", "version": "1.0.0"}')
+    r = fix_dependencies(str(tmp_path))
+    # either a well-formed plan, or a clean "npm not installed" error
+    if "error" in r:
+        assert "not installed" in r["error"] or "not on PATH" in r["error"]
+    else:
+        assert r["status"] == "plan"
+        assert r["package_manager"] == "npm"
+        assert "next" in r
 
 
 def test_run_tests_detects_none():

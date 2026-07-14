@@ -83,6 +83,27 @@ export interface LintResult {
   message?: string;
 }
 
+export interface FixDependencies {
+  project: string;
+  package_manager: string;
+  status: string; // "plan" | "applied" | "failed"
+  // plan (npm dry-run)
+  would_change?: { added: number; removed: number; changed: number; updated: number };
+  remaining_vulnerabilities?: Record<string, number>;
+  remaining_total?: number;
+  // plan (pnpm audit)
+  vulnerabilities?: Record<string, number>;
+  vulnerability_total?: number;
+  next?: string;
+  note?: string;
+  // apply
+  command?: string;
+  exit_code?: number | null;
+  output?: string;
+  undo_hint?: string;
+  error?: string;
+}
+
 async function post<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
@@ -118,6 +139,8 @@ export const smartdev = {
     post<Analysis>("/api/analyze", { path, ...opts }),
   lint: (path: string, opts?: { typecheck?: boolean; diff_base?: string }) =>
     post<LintResult>("/api/lint", { path, ...opts }),
+  fixDependencies: (path: string, opts?: { confirm?: boolean; force?: boolean }) =>
+    post<FixDependencies>("/api/dependencies/fix", { path, ...opts }),
   workflow: (name: string, body: { project_path?: string; issue?: string; target?: string }) =>
     post<WorkflowResult>(`/api/workflow/${name}`, body),
   // ChatClient surface

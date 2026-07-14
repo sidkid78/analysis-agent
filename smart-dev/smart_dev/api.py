@@ -62,6 +62,12 @@ class DepsRequest(BaseModel):
     audit: bool = True
 
 
+class FixDepsRequest(BaseModel):
+    path: str
+    confirm: bool = False
+    force: bool = False
+
+
 class DeployRequest(BaseModel):
     path: str
     run_build: bool = False
@@ -111,6 +117,11 @@ def lint(req: LinterRequest) -> dict:
 @app.post("/api/dependencies")
 def dependencies(req: DepsRequest) -> dict:
     return _handle(T.check_dependencies, req.path, audit=req.audit)
+
+
+@app.post("/api/dependencies/fix")
+def fix_dependencies(req: FixDepsRequest) -> dict:
+    return _handle(T.fix_dependencies, req.path, confirm=req.confirm, force=req.force)
 
 
 @app.post("/api/docs")

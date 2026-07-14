@@ -72,6 +72,14 @@ def check_dependencies(path: str, audit: bool = True) -> str:
 
 @mcp.tool()
 @_guard
+def fix_dependencies(path: str, confirm: bool = False, force: bool = False) -> str:
+    """Plan (or, with confirm=true, apply) `npm`/`pnpm audit fix` for a JS project.
+    Plans by default; force=true allows SemVer-major (breaking) npm updates."""
+    return T.fix_dependencies(path, confirm=confirm, force=force)
+
+
+@mcp.tool()
+@_guard
 def generate_docs(path: str, output_path: str = "", max_files: int = 200) -> str:
     """Generate Markdown API docs from source (Python AST + pattern-based)."""
     return T.generate_docs(path, output_path=output_path, max_files=max_files)
@@ -153,6 +161,7 @@ A senior-dev pair programmer. **Prompts** are guided workflows that compose the
   mypy/tsc type-check; `diff_base="HEAD"` scopes to changed files
 - `run_tests(path)` — pytest / npm test with a parsed summary
 - `check_dependencies(path)` — manifest inventory + optional audit
+- `fix_dependencies(path, confirm?, force?)` — npm/pnpm audit fix (plans unless confirm=true)
 - `generate_docs(path)` — Markdown API docs from source
 - `deploy_preview(path, run_build?)` — build/health check, simulated preview URL
 - `rollback_changes(path, target?, confirm?)` — git revert (plans unless confirm=true)

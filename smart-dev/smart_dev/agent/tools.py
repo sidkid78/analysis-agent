@@ -47,6 +47,15 @@ def check_dependencies(path: str, audit: bool = True) -> dict[str, Any]:
     return _guard(T.check_dependencies, path, audit=audit)
 
 
+def fix_dependencies(path: str, confirm: bool = False, force: bool = False) -> dict[str, Any]:
+    """Apply automated dependency vulnerability fixes for a JS project via
+    npm/pnpm audit fix. Returns a preview (dry run) unless confirm=True, which
+    mutates package.json / lockfile / node_modules. Run check_dependencies first;
+    set force=True only to allow SemVer-major (possibly breaking) npm updates.
+    Always preview before confirming."""
+    return _guard(T.fix_dependencies, path, confirm=confirm, force=force)
+
+
 def generate_docs(path: str) -> dict[str, Any]:
     """Generate Markdown API documentation from a project's source."""
     return _guard(T.generate_docs, path)
@@ -69,6 +78,7 @@ TOOLS = [
     run_tests,
     run_linter,
     check_dependencies,
+    fix_dependencies,
     generate_docs,
     deploy_preview,
     rollback_changes,
